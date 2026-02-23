@@ -1,3 +1,18 @@
+<div align="center">
+  <h1> BaseMetas Fileview 在线文件预览引擎-服务端项目</h1>
+  <p>新一代通用型在线文件预览引擎，全格式覆盖，跨平台，零依赖</p>
+  <a href="https://hub.docker.com/r/basemetas/fileview/tags"><img alt="Docker Image Version (tag)" src="https://img.shields.io/docker/v/basemetas/fileview/latest"></a>
+  <a href="https://github.com/BaseMetas/fileview/blob/main/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/BaseMetas/fileview"></a>
+  <a href="https://hub.docker.com/r/basemetas/fileview/tags"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/basemetas/fileview"></a>
+  <a href="https://github.com/BaseMetas/fileview-backend/graphs/contributors"><img src="https://img.shields.io/github/contributors/BaseMetas/fileview-backend?style=flat-square" alt="contributors"></a>
+  <a href="https://github.com/BaseMetas/fileview-backend/commits"><img src="https://img.shields.io/github/commit-activity/w/BaseMetas/fileview-backend?style=flat-square" alt="commit activity"></a>
+  <a href="https://github.com/BaseMetas/fileview-backend"><img src="https://img.shields.io/github/actions/workflow/status/basemetas/fileview-backend/lint.yml?branch=main&style=flat-square&label=lint" alt="lint"></a>
+</div>
+
+## 主项目仓库
+
+https://github.com/BaseMetas/fileview
+
 ## 文件预览转换服务（FileView Backend）
 
 ### 项目简介
