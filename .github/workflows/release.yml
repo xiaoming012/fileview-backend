@@ -47,26 +47,29 @@ jobs:
         run: |
           RAW_TAG=${GITHUB_REF#refs/tags/}
           TAG=${RAW_TAG#v}
+          # 提取基础版本号（去掉 -rc1 这样的后缀）
+          BASE_VERSION=$(echo "$TAG" | sed 's/-[a-zA-Z0-9]*$//')
           echo "raw_tag=$RAW_TAG" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
 
       # -------------------------
-      # 校验 tag 格式 vX.Y.Z
+      # 校验 tag 格式 vX.Y.Z 或 vX.Y.Z-xxx
       # -------------------------
       - name: Validate tag format
         run: |
-          if [[ ! "${{ steps.tag.outputs.raw_tag }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "❌ Invalid tag format. Use vX.Y.Z"
+          if [[ ! "${{ steps.tag.outputs.raw_tag }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+            echo "❌ Invalid tag format. Use vX.Y.Z or vX.Y.Z-suffix (e.g., vX.Y.Z-rc1)"
             exit 1
           fi
 
       # -------------------------
-      # 校验 version.txt 与 tag 一致
+      # 校验 version.txt 与 tag 基础版本一致
       # -------------------------
       - name: Validate version match
         run: |
-          if [ "${{ steps.file.outputs.version }}" != "${{ steps.tag.outputs.tag }}" ]; then
-            echo "❌ Tag version does not match version.txt"
+          if [ "${{ steps.file.outputs.version }}" != "${{ steps.tag.outputs.base_version }}" ]; then
+            echo "❌ Tag version does not match version.txt (expected: ${{ steps.tag.outputs.base_version }}, got: ${{ steps.file.outputs.version }})"
             exit 1
           fi
           echo "✅ Version matched"
