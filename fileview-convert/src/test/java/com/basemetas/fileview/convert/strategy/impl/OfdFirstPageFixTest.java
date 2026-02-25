@@ -16,7 +16,10 @@
 package com.basemetas.fileview.convert.strategy.impl;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -90,18 +93,35 @@ public class OfdFirstPageFixTest {
         logger.info("测试连续失败处理机制");
         
         // 模拟连续失败的处理逻辑
-        int maxConsecutiveFailures = 2;
         
         // 场景1：第一页失败，第二页成功 - 应该继续处理
         boolean shouldContinueAfterFirstPageFailure = true;
         assertTrue(shouldContinueAfterFirstPageFailure, "第一页失败后应该继续验证后续页面");
         
-        // 场景2：连续失败次数达到上限 - 应该停止（测试边界条件）
-        int currentConsecutiveFailures = maxConsecutiveFailures; // 使用变量避免恒真
-        boolean shouldStopAfterMaxFailures = currentConsecutiveFailures >= maxConsecutiveFailures;
-        assertTrue(shouldStopAfterMaxFailures, "连续失败达到上限时应该停止验证");
-        
         logger.info("连续失败处理机制验证通过");
+    }
+    
+    @ParameterizedTest
+    @CsvSource({
+        "0, 3, false, '失败0次（未达上限3）应该继续验证'",
+        "1, 3, false, '失败1次（未达上限3）应该继续验证'",
+        "2, 3, false, '失败2次（未达上限3）应该继续验证'",
+        "3, 3, true,  '失败3次（达到上限3）应该停止验证'",
+        "4, 3, true,  '失败4次（超过上限3）应该停止验证'",
+        "2, 2, true,  '失败2次（达到上限2）应该停止验证'"
+    })
+    @DisplayName("连续失败边界条件测试")
+    void testConsecutiveFailureBoundary(int failureCount, int maxFailures, boolean expectedStop, String description) {
+        logger.info("测试连续失败边界: 失败次数={}, 上限={}, 预期={}, 描述={}", 
+            failureCount, maxFailures, expectedStop, description);
+        
+        // 核心逻辑：达到或超过上限时停止
+        boolean shouldStop = failureCount >= maxFailures;
+        
+        assertEquals(expectedStop, shouldStop, description);
+        
+        logger.info("连续失败{}次（上限{}）: {} - {}", failureCount, maxFailures,
+            shouldStop ? "停止" : "继续", description);
     }
     
     @Test
@@ -112,40 +132,38 @@ public class OfdFirstPageFixTest {
         int validatedPageCount = 0;  // 验证失败返回0
         int originalPageCount = 3;   // 原始页面数
         
-        // 应用修复逻辑
+        // 应用修复逻辑：validatedPageCount=0时使用originalPageCount
         int finalPageCount = validatedPageCount > 0 ? validatedPageCount : originalPageCount;
         
-        // 安全兜底：确保至少1页（这是代码保证的逻辑）
+        // 安全兜底：使用 Math.max 确保至少1页
+        // 测试目标：验证在 validatedPageCount=0 时，兜底逻辑能够使用 originalPageCount（3页）
         finalPageCount = Math.max(finalPageCount, 1);
         
-        // 验证兜底逻辑确实生效
+        // 验证兜底逻辑确实生效（应该使用原始页面数3，而非兜底值1）
         assertEquals(3, finalPageCount, "应该使用原始页面数");
         
         logger.info("并行转换安全检查验证通过：原始{}页 → 验证{}页 → 最终{}页", 
                    originalPageCount, validatedPageCount, finalPageCount);
     }
     
-    @Test
-    public void testPageIndexValidationForFirstPage() {
-        logger.info("测试第一页索引验证的特殊处理");
+    @ParameterizedTest
+    @CsvSource({
+        "1, true,  '第一页应该被允许（即使totalPages=0）'",
+        "2, false, '非第一页应该被拒绝（当totalPages=0时）'",
+        "3, false, '第三页应该被拒绝（当totalPages=0时）'",
+        "0, false, '页码0应该被拒绝'"
+    })
+    @DisplayName("页面索引验证的特殊处理测试")
+    void testPageIndexValidationForFirstPage(int pageNumber, boolean expectedIsFirstPage, String description) {
+        logger.info("测试页面索引验证: 页码={}, 预期={}, 描述={}", pageNumber, expectedIsFirstPage, description);
         
-        // 场景1：第一页应该被允许
-        int pageNumber = 1;
+        // 核心逻辑：只有第一页（pageNumber == 1）才被允许
         boolean isFirstPage = (pageNumber == 1);
-        boolean shouldAllowFirstPage = isFirstPage; // 第一页总是允许，不依赖totalPages
         
-        assertTrue(shouldAllowFirstPage, 
-                  "即使文件报告页数为0，也应该允许尝试转换第一页");
+        assertEquals(expectedIsFirstPage, isFirstPage, description);
         
-        // 场景2：非第一页应该被拒绝（当totalPages=0时）
-        pageNumber = 2;
-        boolean isNotFirstPage = pageNumber > 1;
-        boolean shouldRejectNonFirstPage = isNotFirstPage; // totalPages=0时非第一页被拒绝
-        
-        assertTrue(shouldRejectNonFirstPage, 
-                  "非第一页在页数为0时应该被拒绝");
-        
-        logger.info("第一页索引验证特殊处理验证通过");
+        logger.info("页面{}验证: {} - {}", pageNumber, 
+            isFirstPage ? "允许" : "拒绝", description);
     }
     
     @Test

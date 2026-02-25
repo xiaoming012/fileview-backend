@@ -210,7 +210,7 @@ public class FilePreviewController {
      * 智能轮询接口 - 长轮询实现
      * 支持客户端长时间等待转换完成，减少频繁请求
      * 
-     * @param fileId      文件ID（可选，可从路径参数或请求体获取）
+     * 
      * @param request     轮询请求参数
      * @param httpRequest HTTP请求对象
      * @return 统一响应格式

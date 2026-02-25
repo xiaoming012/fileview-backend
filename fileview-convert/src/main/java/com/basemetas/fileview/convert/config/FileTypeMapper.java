@@ -649,18 +649,34 @@ public class FileTypeMapper {
         
         /**
          * 获取支持的源格式集合
-         * @return 不可变的源格式集合（通过 Collections.unmodifiableSet 保护）
+         * 
+         * @return 不可变的源格式集合
+         * 
+         * <p>注意：虽然字段 sourceFormats 在构造时已通过 Collections.unmodifiableSet() 包装，
+         * 但为了确保静态代码分析工具（如 CodeQL）能够识别安全性，
+         * getter 方法额外返回一层不可变包装器。</p>
+         * 
+         * <p>这种双重包装的性能开销极小（只创建轻量级包装对象，不复制数据），
+         * 但显著提升了防御性和代码可维护性。</p>
          */
         public Set<String> getSourceFormats() {
-            return sourceFormats;
+            return Collections.unmodifiableSet(sourceFormats);
         }
         
         /**
          * 获取支持的目标格式集合
-         * @return 不可变的目标格式集合（通过 Collections.unmodifiableSet 保护）
+         * 
+         * @return 不可变的目标格式集合
+         * 
+         * <p>注意：虽然字段 targetFormats 在构造时已通过 Collections.unmodifiableSet() 包装，
+         * 但为了确保静态代码分析工具（如 CodeQL）能够识别安全性，
+         * getter 方法额外返回一层不可变包装器。</p>
+         * 
+         * <p>这种双重包装的性能开销极小（只创建轻量级包装对象，不复制数据），
+         * 但显著提升了防御性和代码可维护性。</p>
          */
         public Set<String> getTargetFormats() {
-            return targetFormats;
+            return Collections.unmodifiableSet(targetFormats);
         }
     }
 }
