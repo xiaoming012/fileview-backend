@@ -579,7 +579,7 @@ curl http://localhost:8183/actuator/metrics/jvm.memory.used
 - [ ] Redis 服务已启动
 - [ ] RocketMQ 服务已启动
 - [ ] LibreOffice 已安装（如需使用）
-- [ ] 目录结构已创建 (`prepare-deploy.sh`)
+- [ ] 目录结构已创建（执行 `deploy.sh` 自动创建）
 - [ ] JAR 文件已编译
 - [ ] 配置文件已复制
 - [ ] 启动脚本已复制并授权

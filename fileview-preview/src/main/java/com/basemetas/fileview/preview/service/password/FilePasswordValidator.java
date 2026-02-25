@@ -576,6 +576,20 @@ public class FilePasswordValidator {
             // 使用 POI 轻量级验证密码
             return validateOle2PasswordInternal(file, password, format, fs);
 
+        } catch (IllegalArgumentException e) {
+            // 🔑 POI 5.4.0 新增：ZIP 重复条目检测
+            // 当文件包含重复路径的 ZIP 条目时，POI 会抛出 IllegalArgumentException
+            String errorMsg = e.getMessage();
+            if (errorMsg != null && (errorMsg.toLowerCase().contains("duplicate") || 
+                                      errorMsg.toLowerCase().contains("duplicated"))) {
+                logger.warn("⚠️ {}文件包含重复ZIP条目（可能是恶意文件）- 文件: {}, 错误: {}",
+                        format.toUpperCase(), file.getName(), errorMsg);
+                return PasswordValidationResult.error(format, "文件格式异常：包含重复ZIP条目");
+            }
+            // 其他 IllegalArgumentException，继续抛出
+            logger.error("{}文件参数异常 - 文件: {}, 错误: {}", 
+                    format.toUpperCase(), file.getName(), errorMsg, e);
+            return PasswordValidationResult.error(format, "文件格式异常: " + errorMsg);
         } catch (IOException e) {
             // OLE2读取失败,文件可能损坏或特殊加密格式
             // 🚨 关键修复：既然不是ZIP，应该保守认为可能是加密文件

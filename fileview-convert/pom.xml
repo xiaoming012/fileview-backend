@@ -15,7 +15,7 @@
     <artifactId>fileview-convert</artifactId>
     <name>File Convert Service</name>
     <description>File Convert Microservice</description>
-
+ 
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -147,17 +147,17 @@
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi</artifactId>
-            <version>5.2.3</version>
+            <version>5.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
-            <version>5.2.3</version>
+            <version>5.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-scratchpad</artifactId>
-            <version>5.2.3</version>
+            <version>5.4.0</version>
         </dependency>
     </dependencies>
 
