@@ -103,7 +103,7 @@ public class FilePreviewController {
     private com.basemetas.fileview.preview.utils.ClientIdExtractor clientIdExtractor;
     
     @Autowired
-    private com.basemetas.fileview.preview.utils.FileUtils fileUtlis;
+    private com.basemetas.fileview.preview.utils.FileUtils fileUtils;
     
     @Autowired
     private com.basemetas.fileview.preview.service.password.PasswordUnlockService passwordUnlockService;
@@ -423,7 +423,7 @@ public class FilePreviewController {
                             // 🔑 关键修复：密码解锁使用 localFileId（基于本地文件路径生成），需同时检查
                             String localFilePath = cacheInfo.getOriginalFilePath();
                             String localFileId = (localFilePath != null && !localFilePath.trim().isEmpty()) 
-                                    ? fileUtlis.generateFileIdFromFileUrl(localFilePath) : fileId;
+                                    ? fileUtils.generateFileIdFromFileUrl(localFilePath) : fileId;
                             boolean isUnlocked = passwordUnlockService.isUnlocked(fileId, clientId) 
                                     || passwordUnlockService.isUnlocked(localFileId, clientId);
                             if (!isUnlocked) {
@@ -470,7 +470,7 @@ public class FilePreviewController {
                         // 转换失败，返回失败状态
                         // 🔑 关键修复：读取 errorCode 并生成友好提示
                         String cachedErrorCode = cacheInfo.getErrorCode();
-                        String errorMessage = "\u6587\u4ef6\u8f6c\u6362\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u6587\u4ef6\u683c\u5f0f\u6216\u91cd\u65b0\u4e0a\u4f20";
+                        String errorMessage = "文件转换失败，请检查文件格式或重新上传";
                         ErrorCode responseErrorCode = ErrorCode.CONVERSION_FAILED;
                         
                         // 根据 errorCode 生成友好提示
@@ -551,7 +551,7 @@ public class FilePreviewController {
                         // 🔑 关键修复：密码解锁使用 localFileId（基于本地文件路径生成），需同时检查
                         String localFilePath = cacheInfo.getOriginalFilePath();
                         String localFileId = (localFilePath != null && !localFilePath.trim().isEmpty()) 
-                                ? fileUtlis.generateFileIdFromFileUrl(localFilePath) : fileId;
+                                ? fileUtils.generateFileIdFromFileUrl(localFilePath) : fileId;
                         boolean isUnlocked = (clientId != null && !clientId.trim().isEmpty()) 
                                 && (passwordUnlockService.isUnlocked(fileId, clientId) 
                                     || passwordUnlockService.isUnlocked(localFileId, clientId));
@@ -603,7 +603,7 @@ public class FilePreviewController {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
-                logger.error("❌ 长轮询检查异常 - FileId: {}, Attempt: {}", fileId, attemptCount, e);
+                logger.error("💥  长轮询检查异常 - FileId: {}, Attempt: {}", fileId, attemptCount, e);
                 // 发生异常时短暂等待后继续
                 try {
                     Thread.sleep(intervalMs);
@@ -743,7 +743,7 @@ public class FilePreviewController {
             }
 
             // 安全检查：防止路径遍历攻击
-            if (!fileUtlis.isSecurePath(filePath)) {
+            if (!fileUtils.isSecurePath(filePath)) {
                 logger.warn("🚫 不安全的文件路径 - FileId: {}, Path: {}", fileId, filePath);
                 return ResponseEntity.badRequest().build();
             }
@@ -760,7 +760,7 @@ public class FilePreviewController {
 
             // 获取文件名并进行URL编码（支持中文文件名）
             String fileName = file.getFileName().toString();
-            String encodedFileName =fileUtlis.encodeFileName(fileName);
+            String encodedFileName =fileUtils.encodeFileName(fileName);
 
             logger.info("✅ 文件访问成功 - FileId: {}, FileName: {}, ContentType: {}, Size: {} bytes",
                     fileId, fileName, contentType, Files.size(file));
@@ -813,7 +813,7 @@ public class FilePreviewController {
             }
 
             // 安全检查
-            if (!fileUtlis.isSecurePath(decodedPath)) {
+            if (!fileUtils.isSecurePath(decodedPath)) {
                 logger.warn("🚫 不安全的文件路径 - Path: {}", decodedPath);
                 return ResponseEntity.badRequest().build();
             }
@@ -830,7 +830,7 @@ public class FilePreviewController {
 
             // 获取文件名并进行URL编码（支持中文文件名）
             String fileName = file.getFileName().toString();
-            String encodedFileName = fileUtlis.encodeFileName(fileName);
+            String encodedFileName = fileUtils.encodeFileName(fileName);
 
             logger.info("✅ 直接文件访问成功 - FileName: {}, ContentType: {}, Size: {} bytes",
                     fileName, contentType, Files.size(file));
@@ -843,7 +843,7 @@ public class FilePreviewController {
                     .body(resource);
 
         } catch (Exception e) {
-            logger.error("💪 直接文件访问异常 - Path: {}", filePath, e);
+            logger.error("💥直接文件访问异常 - Path: {}", filePath, e);
             return ResponseEntity.internalServerError().build();
         }
     }
@@ -1058,7 +1058,7 @@ public class FilePreviewController {
             }
 
             // 安全检查
-            if (!fileUtlis.isSecurePath(pageFile.toString())) {
+            if (!fileUtils.isSecurePath(pageFile.toString())) {
                 logger.warn("🚫 不安全的文件路径 - FileId: {}, Path: {}", fileId, pageFile);
                 return ResponseEntity.badRequest().build();
             }
@@ -1075,7 +1075,7 @@ public class FilePreviewController {
 
             // 获取文件名
             String fileName = pageFile.getFileName().toString();
-            String encodedFileName = fileUtlis.encodeFileName(fileName);
+            String encodedFileName = fileUtils.encodeFileName(fileName);
 
             logger.info("✅ 页面访问成功 - FileId: {}, Page: {}, FileName: {}, Size: {} bytes",
                     fileId, pageNumber, fileName, Files.size(pageFile));
@@ -1088,7 +1088,7 @@ public class FilePreviewController {
                     .body(resource);
 
         } catch (Exception e) {
-            logger.error("💪 页面访问异常 - FileId: {}, Page: {}", fileId, pageNumber, e);
+            logger.error("💥  页面访问异常 - FileId: {}, Page: {}", fileId, pageNumber, e);
             return ResponseEntity.internalServerError().build();
         }
     }

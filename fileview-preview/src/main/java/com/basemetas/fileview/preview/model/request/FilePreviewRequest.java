@@ -383,7 +383,7 @@ public class FilePreviewRequest {
                 ", sourceService='" + sourceService + '\'' +
                 ", srcRelativePath='" + srcRelativePath + '\'' +
                 ", fileName='" + fileName + '\'' +
-                ", fileName='" + targetPath + '\'' +
+                ", targetPath='" + targetPath + '\'' +
                 ", targetFileName='" + targetFileName + '\'' +
                 ", passWord='" + (password != null ? "***" : null) + '\'' +
                 ", clientId='" + (clientId != null ? clientId : null) + '\'' +

@@ -3,7 +3,6 @@ package com.basemetas.fileview.preview.service.download;
 import com.basemetas.fileview.preview.model.download.DownloadTask;
 import com.basemetas.fileview.preview.model.download.DownloadTaskStatus;
 import com.basemetas.fileview.preview.model.request.FilePreviewRequest;
-import com.basemetas.fileview.preview.service.cache.CacheReadService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -74,14 +73,19 @@ public class CacheConsistencyTest {
     
     @Test
     public void testCacheKeyPrefixes() {
-        // 验证下载任务缓存键前缀
+             // 验证下载任务缓存键前缀
         String downloadTaskPrefix = "download_task:";
-        assertTrue(downloadTaskPrefix.startsWith("download_task:"), 
+ 
+        String sampleDownloadTaskKey = downloadTaskPrefix + "example-file-id";
+        assertTrue(sampleDownloadTaskKey.startsWith(downloadTaskPrefix),
             "下载任务缓存键前缀应该是 'download_task:'");
-        
+
+        // 验证预览缓存键前缀
         // 验证预览缓存键前缀
         String directPreviewPrefix = "preview:direct:";
-        assertTrue(directPreviewPrefix.startsWith("preview:direct:"), 
+        String sampleDirectPreviewKey = directPreviewPrefix + "example-file-id";
+        assertTrue(sampleDirectPreviewKey.startsWith(directPreviewPrefix),
             "直接预览缓存键前缀应该是 'preview:direct:'");
+
     }
-}
+    }

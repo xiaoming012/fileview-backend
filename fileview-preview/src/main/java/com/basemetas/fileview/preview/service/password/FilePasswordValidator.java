@@ -805,8 +805,7 @@ public class FilePasswordValidator {
                     // FilePassRecord sid = 0x002F (47)，表示文件已加密
                     if (record.getSid() == 0x002F) {
                         logger.info("🔒 Excel检测到旧式加密（FilePass记录） - 文件: {}", file.getName());
-                        dis.close();
-
+                     
                         if (password == null || password.trim().isEmpty()) {
                             return PasswordValidationResult.passwordRequired(format);
                         }
@@ -814,8 +813,7 @@ public class FilePasswordValidator {
                         return verifyLegacyExcelPassword(file, password, format);
                     }
                 }
-                dis.close();
-
+           
                 // 未找到FilePass，文件未加密
                 logger.debug("Excel文件未加密（无FilePass记录） - 文件: {}", file.getName());
                 return PasswordValidationResult.notEncrypted(format);
@@ -882,14 +880,14 @@ public class FilePasswordValidator {
 
                     if (record.getSid() == 0x002F) {
                         logger.info("🔒 Excel 5.0/95检测到加密 - 文件: {}", file.getName());
-                        dis.close();
+                   
                         if (password == null || password.trim().isEmpty()) {
                             return PasswordValidationResult.passwordRequired(format);
                         }
                         return verifyLegacyExcelPassword(file, password, format);
                     }
                 }
-                dis.close();
+           
                 logger.debug("Excel 5.0/95文件未加密 - 文件: {}", file.getName());
                 return PasswordValidationResult.notEncrypted(format);
             } finally {

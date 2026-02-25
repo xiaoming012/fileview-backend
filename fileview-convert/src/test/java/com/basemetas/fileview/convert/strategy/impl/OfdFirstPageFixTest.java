@@ -124,25 +124,29 @@ public class OfdFirstPageFixTest {
             shouldStop ? "停止" : "继续", description);
     }
     
-    @Test
-    public void testParallelConversionSafetyCheck() {
-        logger.info("测试并行转换安全检查");
+    @ParameterizedTest
+    @CsvSource({
+        "0, 3, 3, '验证失败(0)时使用原始页面数(3)'",
+        "1, 3, 1, '验证成功(1页)时使用验证结果'",
+        "2, 3, 2, '验证成功(2页)时使用验证结果'",
+        "5, 3, 5, '验证结果(5)大于原始页面数(3)时使用验证结果'"
+    })
+    @DisplayName("并行转换安全检查 - 页面数选择逻辑测试")
+    void testParallelConversionSafetyCheck(int validatedPageCount, int originalPageCount, 
+                                           int expectedFinalPageCount, String description) {
+        logger.info("测试并行转换安全检查: 验证={}页, 原始={}页, 预期={}页, 描述={}", 
+            validatedPageCount, originalPageCount, expectedFinalPageCount, description);
         
-        // 模拟并行转换的安全检查逻辑
-        int validatedPageCount = 0;  // 验证失败返回0
-        int originalPageCount = 3;   // 原始页面数
-        
-        // 应用修复逻辑：validatedPageCount=0时使用originalPageCount
+        // 应用修复逻辑：validatedPageCount>0时使用validatedPageCount，否则使用originalPageCount
         int finalPageCount = validatedPageCount > 0 ? validatedPageCount : originalPageCount;
         
         // 安全兜底：使用 Math.max 确保至少1页
-        // 测试目标：验证在 validatedPageCount=0 时，兜底逻辑能够使用 originalPageCount（3页）
         finalPageCount = Math.max(finalPageCount, 1);
         
-        // 验证兜底逻辑确实生效（应该使用原始页面数3，而非兜底值1）
-        assertEquals(3, finalPageCount, "应该使用原始页面数");
+        // 验证逻辑正确性
+        assertEquals(expectedFinalPageCount, finalPageCount, description);
         
-        logger.info("并行转换安全检查验证通过：原始{}页 → 验证{}页 → 最终{}页", 
+        logger.info("验证通过: 原始{}页 → 验证{}页 → 最终{}页", 
                    originalPageCount, validatedPageCount, finalPageCount);
     }
     

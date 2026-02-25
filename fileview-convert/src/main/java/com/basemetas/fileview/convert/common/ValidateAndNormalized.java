@@ -197,11 +197,11 @@ public class ValidateAndNormalized {
         if (environmentInfo == null) {
             synchronized (envLock) {
                 if (environmentInfo == null) {
-                    // 使用临时变量完成所有初始化，确保对象完全构造后再赋值给 volatile 字段
+                    //先在局部变量中完成所有字段初始化，避免将未完全构造的对象暴露给其他线程
                     EnvironmentInfo tempInfo = new EnvironmentInfo();
                     logger.info("环境信息初始化完成: {}", tempInfo);
                     
-                    // 所有初始化完成后，再赋值给 volatile 字段（happens-before 保证）
+                    //最后一次性写入 volatile 字段，安全发布完全初始化的对象（volatile 写对后续读取具有可见性 / happens-before 保证）
                     environmentInfo = tempInfo;
                 }
             }
