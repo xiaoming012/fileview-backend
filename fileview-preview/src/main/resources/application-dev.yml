@@ -97,17 +97,29 @@ fileview:
       max-cache-size: 1000
       
     polling:
-      default-timeout: 20
-      max-timeout: 300
-      default-interval: 1000
-      min-interval: 500
-      max-interval: 5000
+      default-timeout: 60          # 默认超时时间（秒）- 从 20 增加到 60，解决转换超时问题
+      max-timeout: 120             # 最大超时时间（秒）- 从 300 减少到 120，避免过长等待
+      default-interval: 1000       # 默认检查间隔（毫秒）
+      min-interval: 500            # 最小检查间隔（毫秒）
+      max-interval: 5000           # 最大检查间隔（毫秒）
       smart-strategy:
-        phase1-attempts: 10
-        phase1-interval: 1000
-        phase2-attempts: 20
-        phase2-interval: 2000
-        phase3-interval: 5000
+        phase1-attempts: 20        # 第一阶段尝试次数（从 10 增加到 20，保持总时长不变）
+        phase1-interval: 500       # 第一阶段间隔（毫秒）- 从 1000 减少到 500，提升响应速度 50%
+        phase2-attempts: 20        # 第二阶段尝试次数（2秒间隔）
+        phase2-interval: 2000      # 第二阶段间隔（毫秒）
+        phase3-interval: 5000      # 第三阶段间隔（毫秒）
+      # 长轮询专用线程池配置（开发环境：与生产保持一致）
+      thread-pool:
+        core-pool-size: 100        # 核心线程数（从 50 增加到 100，提升并发能力）
+        max-pool-size: 300         # 最大线程数（从 200 增加到 300，峰值支持更高并发）
+        queue-capacity: 500        # 队列容量（超过300个并发时排队）
+        keep-alive-seconds: 60     # 空闲线程存活时间（秒）
+        thread-name-prefix: long-polling-  # 线程名称前缀
+      # 随机Jitter配置（消除羊群效应）
+      jitter:
+        enabled: true              # 是否启用Jitter
+        min-factor: 0.9            # 最小因子（从 0.8 增加到 0.9，减少波动）
+        max-factor: 1.1            # 最大因子（从 1.2 减少到 1.1，提升稳定性）
       
     storage:
       preview-dir: /opt/fileview/data/preview

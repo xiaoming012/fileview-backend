@@ -59,6 +59,16 @@ public class PollingConfig {
      */
     private SmartPollingStrategy smartStrategy = new SmartPollingStrategy();
     
+    /**
+     * 长轮询专用线程池配置
+     */
+    private ThreadPoolConfig threadPool = new ThreadPoolConfig();
+    
+    /**
+     * 随机Jitter配置
+     */
+    private JitterConfig jitter = new JitterConfig();
+    
     // Getters and Setters
     public int getDefaultTimeout() {
         return defaultTimeout;
@@ -106,6 +116,138 @@ public class PollingConfig {
     
     public void setSmartStrategy(SmartPollingStrategy smartStrategy) {
         this.smartStrategy = smartStrategy;
+    }
+    
+    public ThreadPoolConfig getThreadPool() {
+        return threadPool;
+    }
+    
+    public void setThreadPool(ThreadPoolConfig threadPool) {
+        this.threadPool = threadPool;
+    }
+    
+    public JitterConfig getJitter() {
+        return jitter;
+    }
+    
+    public void setJitter(JitterConfig jitter) {
+        this.jitter = jitter;
+    }
+    
+    /**
+     * 长轮询专用线程池配置
+     */
+    public static class ThreadPoolConfig {
+        /**
+         * 核心线程数
+         */
+        private int corePoolSize = 50;
+        
+        /**
+         * 最大线程数
+         */
+        private int maxPoolSize = 200;
+        
+        /**
+         * 队列容量
+         */
+        private int queueCapacity = 500;
+        
+        /**
+         * 空闲线程存活时间（秒）
+         */
+        private int keepAliveSeconds = 60;
+        
+        /**
+         * 线程名称前缀
+         */
+        private String threadNamePrefix = "long-polling-";
+        
+        // Getters and Setters
+        public int getCorePoolSize() {
+            return corePoolSize;
+        }
+        
+        public void setCorePoolSize(int corePoolSize) {
+            this.corePoolSize = corePoolSize;
+        }
+        
+        public int getMaxPoolSize() {
+            return maxPoolSize;
+        }
+        
+        public void setMaxPoolSize(int maxPoolSize) {
+            this.maxPoolSize = maxPoolSize;
+        }
+        
+        public int getQueueCapacity() {
+            return queueCapacity;
+        }
+        
+        public void setQueueCapacity(int queueCapacity) {
+            this.queueCapacity = queueCapacity;
+        }
+        
+        public int getKeepAliveSeconds() {
+            return keepAliveSeconds;
+        }
+        
+        public void setKeepAliveSeconds(int keepAliveSeconds) {
+            this.keepAliveSeconds = keepAliveSeconds;
+        }
+        
+        public String getThreadNamePrefix() {
+            return threadNamePrefix;
+        }
+        
+        public void setThreadNamePrefix(String threadNamePrefix) {
+            this.threadNamePrefix = threadNamePrefix;
+        }
+    }
+    
+    /**
+     * 随机Jitter配置
+     */
+    public static class JitterConfig {
+        /**
+         * 是否启用Jitter
+         */
+        private boolean enabled = true;
+        
+        /**
+         * 最小因子（例如0.8表示80%）
+         */
+        private double minFactor = 0.8;
+        
+        /**
+         * 最大因子（例如1.2表示120%）
+         */
+        private double maxFactor = 1.2;
+        
+        // Getters and Setters
+        public boolean isEnabled() {
+            return enabled;
+        }
+        
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+        
+        public double getMinFactor() {
+            return minFactor;
+        }
+        
+        public void setMinFactor(double minFactor) {
+            this.minFactor = minFactor;
+        }
+        
+        public double getMaxFactor() {
+            return maxFactor;
+        }
+        
+        public void setMaxFactor(double maxFactor) {
+            this.maxFactor = maxFactor;
+        }
     }
     
     /**
