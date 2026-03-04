@@ -948,92 +948,94 @@ public class FilePasswordValidator {
      */
     private PasswordValidationResult validate7zWithExternalCommand(File archiveFile, String password, String format) {
         try {
-            // 检查外部7z命令是否可用
-            Process checkProcess = new ProcessBuilder("7z", "--help")
+            // 检查外部7zz命令是否可用（用版本命令，退出码稳定为0）
+            Process checkProcess = new ProcessBuilder("7zz", "i")
                     .redirectErrorStream(true)
                     .start();
-
+            // 消费输出，避免阻塞
+            try (java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(checkProcess.getInputStream()))) {
+                while (r.readLine() != null) { /* discard */ }
+            }
             int checkExitCode = checkProcess.waitFor();
             if (checkExitCode != 0) {
-                logger.error("❌ WSL2环境下外部7z命令不可用 - File: {}", archiveFile.getName());
+                logger.error("❌ WSL2环境下外部7zz命令不可用 - File: {}", archiveFile.getName());
                 // 无法检测，保守起见假定未加密
                 return PasswordValidationResult.notEncrypted(format);
             }
 
-            // 使用7z l命令列出文件，检查是否需要密码
-            ProcessBuilder pb = new ProcessBuilder(
-                    "7z", "l",
-                    "-slt", // 显示详细信息
+            // --- Step 1：用 7zz l（不带密码）检测文件是否加密 ---
+            // RAR v5 目录头明文，l 命令即使密码错误也会 exit 0，故此处不带密码
+            ProcessBuilder listPb = new ProcessBuilder(
+                    "7zz", "l", "-slt", "-p",
                     archiveFile.getAbsolutePath());
+            listPb.redirectErrorStream(true);
+            Process listProcess = listPb.start();
 
-            if (password != null && !password.trim().isEmpty()) {
-                pb.command().add("-p" + password); // 提供密码
-            } else {
-                pb.command().add("-p"); // 空密码
-            }
-
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-
-            // 读取输出
-            StringBuilder output = new StringBuilder();
+            StringBuilder listOutput = new StringBuilder();
             try (java.io.BufferedReader reader = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(process.getInputStream()))) {
+                    new java.io.InputStreamReader(listProcess.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    output.append(line).append("\n");
+                    listOutput.append(line).append("\n");
                 }
             }
+            int listExitCode = listProcess.waitFor();
+            String listOutputStr = listOutput.toString();
 
-            int exitCode = process.waitFor();
-            String outputStr = output.toString();
+            logger.debug("📋 7zz l命令输出 - File: {}, ExitCode: {}, Output: {}",
+                    archiveFile.getName(), listExitCode, listOutputStr);
 
-            logger.debug("📋 7z命令输出 - File: {}, ExitCode: {}, Output: {}",
-                    archiveFile.getName(), exitCode, outputStr);
+            boolean isEncrypted = listOutputStr.contains("Encrypted = +");
 
-            // 分析输出和退出码
-            if (exitCode == 0) {
-                // 成功列出，检查是否有Encrypted属性
-                if (outputStr.contains("Encrypted = +")) {
-                    // 文件加密
-                    if (password == null || password.trim().isEmpty()) {
-                        logger.debug("🔒 外部7z检测到文件加密但未提供密码 - File: {}", archiveFile.getName());
-                        return PasswordValidationResult.passwordRequired(format);
-                    } else {
-                        logger.debug("✅ 外部7z检测到文件加密且密码正确 - File: {}", archiveFile.getName());
-                        return PasswordValidationResult.passwordCorrect(format);
-                    }
-                } else {
-                    // 文件未加密
-                    logger.debug("🔓 外部7z检测到文件未加密 - File: {}", archiveFile.getName());
-                    return PasswordValidationResult.notEncrypted(format);
-                }
-            } else if (exitCode == 2) {
-                // 退出码2通常表示密码错误或需要密码
-                if (outputStr.toLowerCase().contains("wrong password") ||
-                        outputStr.toLowerCase().contains("can not open") ||
-                        outputStr.toLowerCase().contains("encrypted")) {
-
-                    if (password == null || password.trim().isEmpty()) {
-                        logger.debug("🔒 外部7z检测到需要密码 - File: {}", archiveFile.getName());
-                        return PasswordValidationResult.passwordRequired(format);
-                    } else {
-                        logger.warn("❌ 外部7z检测到密码错误 - File: {}", archiveFile.getName());
-                        return PasswordValidationResult.passwordIncorrect(format, "密码错误");
-                    }
-                }
-                // 其他错误
-                logger.error("❌ 外部7z命令执行失败 - File: {}, ExitCode: {}", archiveFile.getName(), exitCode);
-                return PasswordValidationResult.error(format, "文件检测失败");
-            } else {
-                // 其他退出码
-                logger.error("❌ 外部7z命令返回异常退出码 - File: {}, ExitCode: {}", archiveFile.getName(), exitCode);
-                // 保守起见，假定未加密
+            if (!isEncrypted) {
+                // 文件未加密
+                logger.debug("🔓 外部7zz检测到文件未加密 - File: {}", archiveFile.getName());
                 return PasswordValidationResult.notEncrypted(format);
             }
 
+            // 文件已加密
+            if (password == null || password.trim().isEmpty()) {
+                logger.debug("🔒 外部7zz检测到文件加密但未提供密码 - File: {}", archiveFile.getName());
+                return PasswordValidationResult.passwordRequired(format);
+            }
+
+            // --- Step 2：用 7zz t（测试）带密码验证密码正确性 ---
+            // t 命令会尝试解密内容，密码错误时 exit 2 + "Wrong password"
+            ProcessBuilder testPb = new ProcessBuilder(
+                    "7zz", "t",
+                    "-p" + password,
+                    archiveFile.getAbsolutePath());
+            testPb.redirectErrorStream(true);
+            Process testProcess = testPb.start();
+
+            StringBuilder testOutput = new StringBuilder();
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(testProcess.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    testOutput.append(line).append("\n");
+                }
+            }
+            int testExitCode = testProcess.waitFor();
+            String testOutputStr = testOutput.toString();
+
+            logger.debug("📋 7zz t命令输出 - File: {}, ExitCode: {}, Output: {}",
+                    archiveFile.getName(), testExitCode, testOutputStr);
+
+            if (testExitCode == 0) {
+                logger.debug("✅ 外部7zz测试通过，密码正确 - File: {}", archiveFile.getName());
+                return PasswordValidationResult.passwordCorrect(format);
+            } else if (testOutputStr.toLowerCase().contains("wrong password")) {
+                logger.warn("❌ 外部7zz检测到密码错误 - File: {}", archiveFile.getName());
+                return PasswordValidationResult.passwordIncorrect(format, "密码错误");
+            } else {
+                logger.error("❌ 外部7zz测试命令执行失败 - File: {}, ExitCode: {}", archiveFile.getName(), testExitCode);
+                return PasswordValidationResult.error(format, "文件检测失败");
+            }
+
         } catch (Exception e) {
-            logger.error("💥 外部7z命令执行异常 - File: {}", archiveFile.getName(), e);
+            logger.error("💥 外部7zz命令执行异常 - File: {}", archiveFile.getName(), e);
             // 无法检测，保守起见假定未加密
             return PasswordValidationResult.notEncrypted(format);
         }

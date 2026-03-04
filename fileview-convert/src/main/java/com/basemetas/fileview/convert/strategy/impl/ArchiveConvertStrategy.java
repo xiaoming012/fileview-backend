@@ -26,6 +26,7 @@ import com.basemetas.fileview.convert.utils.ArchiveUtils;
 import com.basemetas.fileview.convert.utils.DateTimeUtils; // 修改导入
 import com.basemetas.fileview.convert.utils.FileUtils;
 import com.basemetas.fileview.convert.service.SevenZipParserService;
+import com.basemetas.fileview.convert.utils.EnvironmentUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -680,7 +681,10 @@ public class ArchiveConvertStrategy implements FileConvertStrategy {
 
     /**
      * 解析RAR格式文件（带密码支持）
-     * 
+     *
+     * 优先使用外部 7z 命令（支持 RAR v1-v5，不受平台限制）；
+     * 外部 7z 不可用时降级到 junrar（仅支持 RAR v1-v4）。
+     *
      * @param archivePath RAR文件路径
      * @param password    密码（可为null）
      * @return 压缩包信息
@@ -689,6 +693,21 @@ public class ArchiveConvertStrategy implements FileConvertStrategy {
     private ArchiveInfo parseRarArchive(String archivePath, String password) throws Exception {
         long startTime = System.currentTimeMillis();
         File archiveFile = new File(archivePath);
+
+        // 优先使用外部 7z 命令（支持 RAR v1-v5，不受平台限制）
+        if (EnvironmentUtils.isExternal7zAvailable()) {
+            logger.info("🔄 使用外部 7z 命令解析 RAR 文件（支持 v1-v5）- File: {}", archiveFile.getName());
+            ArchiveInfo info = sevenZipParserService.parse7zArchiveFallback(archiveFile, password);
+            if (info != null) {
+                info.setArchiveFormat("RAR"); // parse7zArchiveFallback 默认写 "7Z"，修正为 "RAR"
+            }
+            long duration = System.currentTimeMillis() - startTime;
+            logger.info("✅ RAR 解析完成（外部 7z）- File: {}, 耗时: {}ms", archiveFile.getName(), duration);
+            return info;
+        }
+
+        // 外部 7z 不可用，降级到 junrar（仅支持 RAR v1-v4）
+        logger.info("ℹ️ 外部 7z 不可用，使用 junrar 解析 RAR（仅支持 v1-v4）- File: {}", archiveFile.getName());
         ArchiveInfo info = archiveUtils.createArchiveInfo(archiveFile);
         List<ArchiveEntryInfo> entries = new ArrayList<>();
 

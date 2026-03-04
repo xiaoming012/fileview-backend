@@ -142,22 +142,22 @@ public class EnvironmentUtils {
     }
     
     /**
-     * 实际执行外部7z命令检测
+     * 实际执行外部7zz命令检测
      */
     private static boolean detectExternal7z() {
-        logger.debug("🔍 检查外部7z命令是否可用...");
+        logger.debug("🔍 检查外部7zz命令是否可用...");
         try {
-            ProcessBuilder pb = new ProcessBuilder("7z");
+            ProcessBuilder pb = new ProcessBuilder("7zz");
             Process p = pb.start();
             boolean finished = p.waitFor(5, TimeUnit.SECONDS);
             if (!finished) {
                 p.destroyForcibly();
-                logger.debug("❌ 外部7z命令检查超时");
+                logger.debug("❌ 外部7zz命令检查超时");
                 return false;
             }
             return true;
         } catch (Exception e) {
-            logger.debug("❌ 外部7z命令不可用 - ErrorType: {}, ErrorMessage: {}", 
+            logger.debug("❌ 外部7zz命令不可用 - ErrorType: {}, ErrorMessage: {}", 
                 e.getClass().getName(), e.getMessage());
             return false;
         }
