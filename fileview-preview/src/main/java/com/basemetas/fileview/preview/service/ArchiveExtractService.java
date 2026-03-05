@@ -515,6 +515,19 @@ public class ArchiveExtractService {
                     return ExtractResult.wrongPassword("zip", "ZIP密码错误，请重试");
                 }
 
+                // Zip4j 不支持的压缩算法（LZMA/PPMd/Deflate64等），使用7zz兜底
+                if (errorMsg != null && (errorMsg.toLowerCase().contains("unsupported compression method") ||
+                        errorMsg.toLowerCase().contains("unsupported feature"))) {
+                    logger.warn("⚠️ Zip4j不支持此ZIP压缩算法，尝试使用7zz兜底 - File: {}, Error: {}",
+                            archiveFile.getName(), errorMsg);
+                    if (EnvironmentUtils.isExternal7zAvailable()) {
+                        return tryExtractWith7zCommand(archiveFile, targetFilePath, tempDir, password);
+                    } else {
+                        logger.error("❌ 7zz命令不可用，无法处理此ZIP文件 - File: {}", archiveFile.getName());
+                        return ExtractResult.failure("ZIP压缩算法不受支持，且7zz命令不可用: " + errorMsg);
+                    }
+                }
+
                 // 其他异常，尝试下一个编码
                 logger.debug("使用编码 {} 解压ZIP失败: {}", encoding, e.getMessage());
                 if (encoding.equals("ISO-8859-1")) {
@@ -662,10 +675,20 @@ public class ArchiveExtractService {
             IArchiveOpenCallback openCallback = password != null ? new PasswordOpenCallback(password) : null;
 
             // 🔑 关键修复：使用三参数重载，显式指定归档格式，防止WSL2环境下SIGSEGV崩溃
-            IInArchive inArchive = SevenZip.openInArchive(
-                    ArchiveFormat.RAR,  // 显式指定 RAR 格式
-                    new RandomAccessFileInStream(randomAccessFile),
-                    openCallback);
+            // 🔒 并发安全：使用 NATIVE_LOCK 串行化 native 调用，防止并发 SIGSEGV 崩溃
+            IInArchive inArchive;
+            try {
+                synchronized (NATIVE_LOCK) {
+                    inArchive = SevenZip.openInArchive(
+                            ArchiveFormat.RAR,
+                            new RandomAccessFileInStream(randomAccessFile),
+                            openCallback);
+                }
+            } catch (Throwable nativeError) {
+                logger.error("❌ SevenZipJBinding native库解析RAR失败 - File: {}, ErrorType: {}, ErrorMessage: {}",
+                        archiveFile.getName(), nativeError.getClass().getName(), nativeError.getMessage(), nativeError);
+                return ExtractResult.failure("RAR文件native解析失败: " + nativeError.getMessage());
+            }
 
             try {
                 int numberOfItems = inArchive.getNumberOfItems();

@@ -305,6 +305,13 @@ public class FilePasswordValidator {
                 logger.warn("ZIP密码错误: {}", archiveFile.getName());
                 return PasswordValidationResult.passwordIncorrect(format, "密码错误");
             }
+            // Zip4j 不支持的压缩算法（LZMA/PPMd/Deflate64等），使用7zz兜底
+            if (errorMsg != null && (errorMsg.toLowerCase().contains("unsupported compression method") ||
+                    errorMsg.toLowerCase().contains("unsupported feature"))) {
+                logger.warn("⚠️ Zip4j不支持此ZIP压缩算法，尝试使用7zz兜底 - File: {}, Error: {}",
+                        archiveFile.getName(), errorMsg);
+                return validate7zWithExternalCommand(archiveFile, password, format);
+            }
             logger.error("ZIP文件处理异常: {}", archiveFile.getName(), e);
             return PasswordValidationResult.error(format, "ZIP文件处理失败: " + errorMsg);
         } catch (Exception e) {

@@ -345,6 +345,29 @@ public class ArchiveConvertStrategy implements FileConvertStrategy {
                         entries.size(), System.currentTimeMillis() - startTime);
                 return info;
             } catch (Exception e) {
+                String errorMsg = e.getMessage();
+                // Zip4j 不支持的压缩算法（LZMA/PPMd/Deflate64等），尝试使用7zz兜底
+                if (errorMsg != null && (errorMsg.toLowerCase().contains("unsupported compression method") ||
+                        errorMsg.toLowerCase().contains("unsupported feature"))) {
+                    logger.warn("⚠️ Zip4j不支持此ZIP压缩算法，尝试使用7zz兜底 - File: {}, Error: {}",
+                            archiveFile.getName(), errorMsg);
+                    if (EnvironmentUtils.isExternal7zAvailable()) {
+                        try {
+                            entries = parseZipWith7zz(archiveFile, password);
+                            info.setEntries(entries);
+                            ArchiveUtils.calculateStatistics(info);
+                            logger.info("✅ 成功使用7zz解析ZIP文件，共解析 {} 个条目，耗时 {}ms",
+                                    entries.size(), System.currentTimeMillis() - startTime);
+                            return info;
+                        } catch (Exception fallbackEx) {
+                            logger.error("❌ 7zz兜底解析ZIP文件失败: {}", archivePath, fallbackEx);
+                            throw new IOException("ZIP压缩算法不受支持，且7zz兜底解析失败", fallbackEx);
+                        }
+                    } else {
+                        logger.error("❌ 7zz命令不可用，无法处理此ZIP文件 - File: {}", archiveFile.getName());
+                        throw new IOException("ZIP压缩算法不受支持，且7zz命令不可用: " + errorMsg, e);
+                    }
+                }
                 logger.error("❌ 使用zip4j解析加密ZIP文件失败: {}", archivePath, e);
                 if (password == null || password.isEmpty()) {
                     throw new IOException("ZIP文件已加密，但未提供密码", e);
@@ -366,6 +389,27 @@ public class ArchiveConvertStrategy implements FileConvertStrategy {
                         encoding, entries.size(), System.currentTimeMillis() - startTime);
                 break;
             } catch (Exception e) {
+                String errorMsg = e.getMessage();
+                // Zip4j 不支持的压缩算法（LZMA/PPMd/Deflate64等），尝试使用7zz兜底
+                if (errorMsg != null && (errorMsg.toLowerCase().contains("unsupported compression method") ||
+                        errorMsg.toLowerCase().contains("unsupported feature"))) {
+                    logger.warn("⚠️ Zip4j不支持此ZIP压缩算法，尝试使用7zz兜底 - File: {}, Error: {}",
+                            archiveFile.getName(), errorMsg);
+                    if (EnvironmentUtils.isExternal7zAvailable()) {
+                        try {
+                            entries = parseZipWith7zz(archiveFile, password);
+                            logger.info("✅ 成功使用7zz解析ZIP文件，共解析 {} 个条目，耗时 {}ms",
+                                    entries.size(), System.currentTimeMillis() - startTime);
+                            break;
+                        } catch (Exception fallbackEx) {
+                            logger.error("❌ 7zz兜底解析ZIP文件失败: {}", archivePath, fallbackEx);
+                            throw new IOException("ZIP压缩算法不受支持，且7zz兜底解析失败", fallbackEx);
+                        }
+                    } else {
+                        logger.error("❌ 7zz命令不可用，无法处理此ZIP文件 - File: {}", archiveFile.getName());
+                        throw new IOException("ZIP压缩算法不受支持，且7zz命令不可用: " + errorMsg, e);
+                    }
+                }
                 logger.debug("使用编码 {} 解析失败: {}", encoding, e.getMessage());
                 if ("ISO-8859-1".equals(encoding)) {
                     // 如果所有编码都失败，抛出异常
@@ -874,6 +918,157 @@ public class ArchiveConvertStrategy implements FileConvertStrategy {
             logger.debug("读取ZIP条目内容失败: {}", e.getMessage());
             return "";
         }
+    }
+
+    /**
+     * 使用外部7zz命令解析ZIP文件
+     * 作为Zip4j不支持某些压缩算法（LZMA/PPMd/Deflate64等）时的兜底方案
+     * 
+     * @param archiveFile ZIP文件
+     * @param password 密码（可为null）
+     * @return 压缩包条目列表
+     * @throws Exception 解析失败时抛出
+     */
+    private List<ArchiveEntryInfo> parseZipWith7zz(File archiveFile, String password) throws Exception {
+        logger.info("🔧 使用外部7zz命令解析ZIP文件: {}", archiveFile.getName());
+        List<ArchiveEntryInfo> entries = new ArrayList<>();
+
+        List<String> cmd = new ArrayList<>();
+        cmd.add("7zz");
+        cmd.add("l"); // list
+        cmd.add("-slt"); // show technical information
+        if (password != null && !password.isEmpty()) {
+            cmd.add("-p" + password);
+        } else {
+            cmd.add("-p"); // 空密码
+        }
+        cmd.add(archiveFile.getAbsolutePath());
+
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(true);
+
+        logger.debug("运行外部7zz命令: {}", String.join(" ", cmd));
+        Process p = pb.start();
+
+        boolean finished = p.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
+        if (!finished) {
+            p.destroyForcibly();
+            throw new RuntimeException("外部7zz命令超时");
+        }
+
+        int exitCode = p.exitValue();
+        if (exitCode != 0) {
+            // 读取错误输出
+            StringBuilder errorOutput = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    errorOutput.append(line).append("\n");
+                }
+            }
+            String errorStr = errorOutput.toString();
+            if (errorStr.toLowerCase().contains("wrong password")) {
+                throw new RuntimeException("ZIP密码错误");
+            }
+            throw new RuntimeException("外部7zz命令执行失败,退出码: " + exitCode + ", 输出: " + errorStr);
+        }
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+
+            String line;
+            ArchiveEntryInfo current = null;
+
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                // 条目分隔符
+                if (line.startsWith("----------") || line.equals("-------------------")) {
+                    if (current != null && !ArchiveUtils.shouldSkipMacOSMetadataFile(current.getName())) {
+                        entries.add(current);
+                    }
+                    current = null;
+                    continue;
+                }
+
+                // 解析 Key = Value 格式
+                int eq = line.indexOf("=");
+                if (eq <= 0) {
+                    continue;
+                }
+                String key = line.substring(0, eq).trim();
+                String val = line.substring(eq + 1).trim();
+
+                switch (key) {
+                    case "Path":
+                        if (current != null && !ArchiveUtils.shouldSkipMacOSMetadataFile(current.getName())) {
+                            entries.add(current);
+                        }
+                        current = new ArchiveEntryInfo();
+                        // 过滤掉压缩包本身（绝对路径或与压缩包同名）
+                        if (val.equals(archiveFile.getAbsolutePath()) ||
+                                val.equals(archiveFile.getName())) {
+                            logger.debug("⚠ 跳过压缩包本身: {}", val);
+                            current = null; // 不创建节点
+                        } else {
+                            current.setName(val);
+                        }
+                        break;
+                    case "Size":
+                        if (current != null) {
+                            try {
+                                current.setSize(Long.parseLong(val));
+                            } catch (NumberFormatException e) {
+                                current.setSize(0);
+                            }
+                        }
+                        break;
+                    case "Packed Size":
+                        if (current != null) {
+                            try {
+                                current.setCompressedSize(Long.parseLong(val));
+                            } catch (NumberFormatException e) {
+                                current.setCompressedSize(0);
+                            }
+                        }
+                        break;
+                    case "Modified":
+                        if (current != null) {
+                            try {
+                                // 7z 时间格式: 2023-01-15 10:30:45
+                                current.setLastModified(ArchiveUtils.parseDateFromExternal(val));
+                            } catch (Exception e) {
+                                logger.debug("解析时间失败: {}", val);
+                            }
+                        }
+                        break;
+                    case "Folder":
+                        if (current != null) {
+                            current.setDirectory("+".equals(val) || "1".equals(val));
+                        }
+                        break;
+                    case "Encrypted":
+                        if (current != null) {
+                            current.setEncrypted("+".equals(val) || "1".equals(val));
+                        }
+                        break;
+                    default:
+                        // 忽略其他字段
+                        break;
+                }
+            }
+
+            // 添加最后一个条目
+            if (current != null && !ArchiveUtils.shouldSkipMacOSMetadataFile(current.getName())) {
+                entries.add(current);
+            }
+        }
+
+        logger.info("✅ 7zz解析ZIP完成，共 {} 个条目", entries.size());
+        return entries;
     }
 
 }
