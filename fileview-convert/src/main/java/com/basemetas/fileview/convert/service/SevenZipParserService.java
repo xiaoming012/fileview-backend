@@ -54,8 +54,8 @@ public class SevenZipParserService {
     @Autowired
     private ArchiveUtils archiveUtils;
 
-    // 外部 7z 命令路径
-    private static final String EXTERNAL_7Z_CMD = "7z";
+    // 外部 7zz 命令路径
+    private static final String EXTERNAL_7Z_CMD = "7zz";
     // 外部命令超时时间(秒)
     private static final long EXTERNAL_LIST_TIMEOUT_SEC = 30;
 

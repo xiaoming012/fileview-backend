@@ -24,6 +24,7 @@ import com.basemetas.fileview.preview.utils.FileUtils;
 import com.basemetas.fileview.preview.utils.EnvironmentUtils;
 import com.github.junrar.Archive;
 import com.github.junrar.rarfile.FileHeader;
+import com.github.junrar.exception.UnsupportedRarV5Exception;
 
 import net.lingala.zip4j.ZipFile;
 import net.sf.sevenzipjbinding.*;
@@ -514,6 +515,19 @@ public class ArchiveExtractService {
                     return ExtractResult.wrongPassword("zip", "ZIP密码错误，请重试");
                 }
 
+                // Zip4j 不支持的压缩算法（LZMA/PPMd/Deflate64等），使用7zz兜底
+                if (errorMsg != null && (errorMsg.toLowerCase().contains("unsupported compression method") ||
+                        errorMsg.toLowerCase().contains("unsupported feature"))) {
+                    logger.warn("⚠️ Zip4j不支持此ZIP压缩算法，尝试使用7zz兜底 - File: {}, Error: {}",
+                            archiveFile.getName(), errorMsg);
+                    if (EnvironmentUtils.isExternal7zAvailable()) {
+                        return tryExtractWith7zCommand(archiveFile, targetFilePath, tempDir, password);
+                    } else {
+                        logger.error("❌ 7zz命令不可用，无法处理此ZIP文件 - File: {}", archiveFile.getName());
+                        return ExtractResult.failure("ZIP压缩算法不受支持，且7zz命令不可用: " + errorMsg);
+                    }
+                }
+
                 // 其他异常，尝试下一个编码
                 logger.debug("使用编码 {} 解压ZIP失败: {}", encoding, e.getMessage());
                 if (encoding.equals("ISO-8859-1")) {
@@ -579,44 +593,74 @@ public class ArchiveExtractService {
 
     /**
      * 从rar类型的压缩文件中解压指定文件（支持密码）
+     *
+     * 路由策略（与 extractFrom7zArchive 对齐）：
+     * 1. ARM64 或 WSL2（SevenZipJBinding native 不可用）→ 直接走外部 7z（支持 RAR v1-v5 + 加密）
+     * 2. 有密码 → SevenZipJBinding native，失败后 fallback 外部 7z
+     * 3. 无密码 → junrar（支持 v1-v4）；RAR v5 或其他失败 → 外部 7z → native
      */
     private ExtractResult extractFromRarArchive(File archiveFile, String targetFilePath, Path tempDir,
             String password) {
-        // RAR 加密支持：优先使用 SevenZipJBinding（支持密码）
-        if (password != null && !password.trim().isEmpty()) {
-            logger.debug("🔓 使用 SevenZipJBinding 处理加密 RAR - File: {}", archiveFile.getName());
-            return extractFromRarWith7z(archiveFile, targetFilePath, tempDir, password);
+        boolean runningInWsl    = EnvironmentUtils.isWslEnvironment();
+        boolean nativeSupported = EnvironmentUtils.isNativeSevenZipSupported();
+        boolean external7zAvail = EnvironmentUtils.isExternal7zAvailable();
+
+        // 1. ARM64 或 WSL2：native 不可用，优先走外部 7z（支持全版本 RAR + 加密）
+        if (!nativeSupported || runningInWsl) {
+            if (external7zAvail) {
+                logger.info("🔄 平台不支持 native (WSL2={}, NativeSupported={})，使用外部 7z 提取 RAR - File: {}",
+                        runningInWsl, nativeSupported, archiveFile.getName());
+                return tryExtractWith7zCommand(archiveFile, targetFilePath, tempDir, password);
+            }
+            if (password != null && !password.isEmpty()) {
+                logger.error("❌ 无法处理加密 RAR：native 不支持且外部 7z 不可用 - File: {}", archiveFile.getName());
+                return ExtractResult.failure("当前环境无法处理加密 RAR：native 不支持，外部 7z 不可用");
+            }
+            // 无密码 + 外部 7z 不可用：降级到 junrar（仅 v1-v4），fall-through 到 section 3
+            logger.warn("⚠️ native 不可用且外部 7z 不可用，降级到 junrar（仅支持 RAR v1-v4）- File: {}", archiveFile.getName());
         }
 
-        // 无密码时，先尝试 junrar
+        // 2. 有密码：优先 SevenZipJBinding native（支持密码），失败后 fallback 外部 7z
+        if (password != null && !password.trim().isEmpty()) {
+            logger.debug("🔓 使用 SevenZipJBinding 处理加密 RAR - File: {}", archiveFile.getName());
+            ExtractResult result = extractFromRarWith7z(archiveFile, targetFilePath, tempDir, password);
+            if (!result.isSuccess() && external7zAvail) {
+                logger.info("🔄 SevenZipJBinding 失败，fallback 到外部 7z - File: {}", archiveFile.getName());
+                return tryExtractWith7zCommand(archiveFile, targetFilePath, tempDir, password);
+            }
+            return result;
+        }
+
+        // 3. 无密码：junrar 优先（v1-v4），RAR v5 或其他失败 → 外部 7z → native
         try (Archive archive = new Archive(archiveFile)) {
             for (FileHeader fileHeader : archive.getFileHeaders()) {
                 String entryName = fileHeader.getFileName();
-
-                // 检查是否是目标文件
                 if (entryName.equals(targetFilePath) || entryName.equals(targetFilePath.replace('\\', '/'))) {
                     if (fileHeader.isDirectory()) {
                         return ExtractResult.failure("目标路径是目录，不是文件: " + targetFilePath);
                     }
-
-                    // 检查文件大小
                     if (fileHeader.getUnpSize() > maxFileSize) {
                         return ExtractResult.failure("文件太大，超过限制: " + fileHeader.getUnpSize() + " bytes");
                     }
-
-                    // 解压文件
                     Path extractedFile = extractRarEntry(archive, fileHeader, tempDir);
                     String relativePath = fileUtils.getRelativePath(extractedFile);
-
                     return ExtractResult.success(relativePath, extractedFile.toString());
                 }
             }
-
             return ExtractResult.failure("在压缩包中未找到指定文件: " + targetFilePath);
 
+        } catch (UnsupportedRarV5Exception rarV5Ex) {
+            logger.info("ℹ️ 检测到 RAR v5（junrar 不支持），fallback 到外部 7z - File: {}", archiveFile.getName());
+            if (external7zAvail) {
+                return tryExtractWith7zCommand(archiveFile, targetFilePath, tempDir, null);
+            }
+            return ExtractResult.failure("RAR v5 不受支持：junrar 不支持 v5，外部 7z 不可用");
+
         } catch (Exception e) {
-            logger.debug("junrar 失败，尝试 SevenZipJBinding: {}", e.getMessage());
-            // junrar 失败，尝试 7z（可能是加密 RAR）
+            logger.debug("junrar 失败，fallback 到外部 7z / SevenZipJBinding: {}", e.getMessage());
+            if (external7zAvail) {
+                return tryExtractWith7zCommand(archiveFile, targetFilePath, tempDir, null);
+            }
             return extractFromRarWith7z(archiveFile, targetFilePath, tempDir, null);
         }
     }
@@ -631,10 +675,20 @@ public class ArchiveExtractService {
             IArchiveOpenCallback openCallback = password != null ? new PasswordOpenCallback(password) : null;
 
             // 🔑 关键修复：使用三参数重载，显式指定归档格式，防止WSL2环境下SIGSEGV崩溃
-            IInArchive inArchive = SevenZip.openInArchive(
-                    ArchiveFormat.RAR,  // 显式指定 RAR 格式
-                    new RandomAccessFileInStream(randomAccessFile),
-                    openCallback);
+            // 🔒 并发安全：使用 NATIVE_LOCK 串行化 native 调用，防止并发 SIGSEGV 崩溃
+            IInArchive inArchive;
+            try {
+                synchronized (NATIVE_LOCK) {
+                    inArchive = SevenZip.openInArchive(
+                            ArchiveFormat.RAR,
+                            new RandomAccessFileInStream(randomAccessFile),
+                            openCallback);
+                }
+            } catch (Throwable nativeError) {
+                logger.error("❌ SevenZipJBinding native库解析RAR失败 - File: {}, ErrorType: {}, ErrorMessage: {}",
+                        archiveFile.getName(), nativeError.getClass().getName(), nativeError.getMessage(), nativeError);
+                return ExtractResult.failure("RAR文件native解析失败: " + nativeError.getMessage());
+            }
 
             try {
                 int numberOfItems = inArchive.getNumberOfItems();
@@ -959,26 +1013,26 @@ public class ArchiveExtractService {
      */
     private ExtractResult tryExtractWith7zCommand(File archiveFile, String targetFilePath, 
                                                     Path tempDir, String password) {
-        logger.info("🔧 尝试使用外部7z命令提取文件 - File: {}, Target: {}", archiveFile.getName(), targetFilePath);
+        logger.info("🔧 尝试使用外部7zz命令提取文件 - File: {}, Target: {}", archiveFile.getName(), targetFilePath);
         
-        // 检查外部 7z 命令是否可用
+        // 检查外部 7zz 命令是否可用
         if (!EnvironmentUtils.isExternal7zAvailable()) {
-            logger.warn("❌ 外部7z命令不可用，无法fallback - File: {}", archiveFile.getName());
+            logger.warn("❌ 外部7zz命令不可用，无法fallback - File: {}", archiveFile.getName());
             return ExtractResult.failure(
                 "该7z文件包含SevenZipJBinding库无法安全处理的特殊结构，" +
-                "且外部7z命令不可用。建议使用其他解压工具。");
+                "且外部7zz命令不可用。建议使用其他解压工具。");
         }
         
         try {
-            // 构建提取命令: 7z e -o<outdir> -p<password> archive.7z targetFile
+            // 构建提取命令: 7zz e -o<outdir> -p<password> archive.7z targetFile
             List<String> cmd = new ArrayList<>();
-            cmd.add("7z");
+            cmd.add("7zz");
             cmd.add("e");  // extract
             cmd.add("-o" + tempDir.toString());
             cmd.add("-y");  // yes to all prompts
             if (password != null && !password.isEmpty()) {
                 cmd.add("-p" + password);
-                logger.debug("🔓 使用密码执行外部7z命令 - File: {}", archiveFile.getName());
+                logger.debug("🔓 使用密码执行外部7zz命令 - File: {}", archiveFile.getName());
             }
             cmd.add(archiveFile.getAbsolutePath());
             cmd.add(targetFilePath);
@@ -986,18 +1040,18 @@ public class ArchiveExtractService {
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.redirectErrorStream(true);
             
-            logger.info("💻 执行外部7z命令: {}", String.join(" ", cmd));
+            logger.info("💻 执行外部7zz命令: {}", String.join(" ", cmd));
             Process p = pb.start();
             
             boolean finished = p.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
             if (!finished) {
                 p.destroyForcibly();
-                logger.error("❌ 外部7z命令执行超时 - File: {}", archiveFile.getName());
-                return ExtractResult.failure("外部 7z 命令超时");
+                logger.error("❌ 外部7zz命令执行超时 - File: {}", archiveFile.getName());
+                return ExtractResult.failure("外部 7zz 命令超时");
             }
             
             int exitCode = p.exitValue();
-            logger.debug("📊 外部7z命令执行完成 - ExitCode: {}, File: {}", exitCode, archiveFile.getName());
+            logger.debug("📊 外部7zz命令执行完成 - ExitCode: {}, File: {}", exitCode, archiveFile.getName());
             
             if (exitCode != 0) {
                 // 读取错误输出
@@ -1008,10 +1062,10 @@ public class ArchiveExtractService {
                     while ((line = reader.readLine()) != null) {
                         output.append(line).append("\n");
                     }
-                    logger.warn("❌ 外部7z命令执行失败 - File: {}, ExitCode: {}, Output: {}", 
+                    logger.warn("❌ 外部7zz命令执行失败 - File: {}, ExitCode: {}, Output: {}", 
                         archiveFile.getName(), exitCode, output.toString());
                 }
-                return ExtractResult.failure("外部 7z 命令执行失败，退出码: " + exitCode);
+                return ExtractResult.failure("外部 7zz 命令执行失败，退出码: " + exitCode);
             }
             
             // 检查提取的文件是否存在
@@ -1020,19 +1074,19 @@ public class ArchiveExtractService {
                 extractedFile, Files.exists(extractedFile));
             
             if (!Files.exists(extractedFile)) {
-                logger.error("❌ 外部7z命令执行成功，但未找到提取的文件 - ExpectedPath: {}", extractedFile);
-                return ExtractResult.failure("外部 7z 命令执行成功，但未找到提取的文件");
+                logger.error("❌ 外部7zz命令执行成功，但未找到提取的文件 - ExpectedPath: {}", extractedFile);
+                return ExtractResult.failure("外部 7zz 命令执行成功，但未找到提取的文件");
             }
             
             String relativePath = fileUtils.getRelativePath(extractedFile);
-            logger.info("✅ 使用外部7z命令提取成功 - File: {}, ExtractedPath: {}, RelativePath: {}", 
+            logger.info("✅ 使用外部7zz命令提取成功 - File: {}, ExtractedPath: {}, RelativePath: {}", 
                 targetFilePath, extractedFile, relativePath);
             return ExtractResult.success(relativePath, extractedFile.toString());
             
         } catch (Exception e) {
-            logger.error("💥 外部7z命令执行异常 - File: {}, ErrorType: {}, ErrorMessage: {}", 
+            logger.error("💥 外部7zz命令执行异常 - File: {}, ErrorType: {}, ErrorMessage: {}", 
                 archiveFile.getName(), e.getClass().getName(), e.getMessage(), e);
-            return ExtractResult.failure("外部 7z 命令执行异常: " + e.getMessage());
+            return ExtractResult.failure("外部 7zz 命令执行异常: " + e.getMessage());
         }
     }
     
