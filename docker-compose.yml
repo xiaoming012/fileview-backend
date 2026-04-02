@@ -1,6 +1,6 @@
 services:
   dev-env:
-    image: basemetas/baseimage:1.2.0
+    image: basemetas/baseimage:1.3.0
     container_name: fileview-backend
     restart: unless-stopped
     ports:
