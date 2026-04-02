@@ -27,7 +27,10 @@
 name: SonarQube analysis
 
 on:
-
+  push:
+    branches: [ " " ]
+  pull_request:
+    branches: [ " " ]
 
 jobs:
   sonarcloud:
@@ -59,8 +62,7 @@ jobs:
             -Dsonar.projectKey=basemetas_fileview-backend \
             -Dsonar.organization=basemetas \
             -Dsonar.host.url=https://sonarcloud.io \
-            -Dsonar.qualitygate.wait=true \
-            -Dsonar.qualitygate.timeout=300 \
-            -Dsonar.test.inclusions=**/*Test.java,**/*Tests.java \
-            -Dsonar.coverage.exclusions=**/*Test.java,**/*Tests.java \
-            -DskipTests
+            -Dsonar.qualitygate.wait=true \  # ⭐ 关键：等待质量门结果 [citation:3][citation:9]
+            -Dsonar.qualitygate.timeout=300   # 超时时间（秒）
+            -Dsonar.exclusions=src/test/java/**/*
+            -DskipTests=true
