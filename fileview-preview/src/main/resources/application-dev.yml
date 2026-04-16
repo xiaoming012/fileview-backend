@@ -6,12 +6,6 @@
 # 服务基础配置
 server:
   port: 8184
-  # 启用原生代理头支持，Tomcat RemoteIpValve 自动处理 X-Forwarded-Proto/Host/For
-  forward-headers-strategy: native
-  tomcat:
-    remoteip:
-      # 信任所有内网代理（Docker/K8s 网络）
-      internal-proxies: ".*"
   servlet:
     context-path: 
     encoding:

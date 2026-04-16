@@ -29,7 +29,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  * 依赖 {@code server.forward-headers-strategy=native} 配置，
  * Tomcat RemoteIpValve 会自动将 X-Forwarded-Proto/Host 等代理头
  * 映射到 request 对象，因此本类优先使用 request 原生方法获取 scheme/host/port。
- * <p>
+ * <p> 
  * 额外保留 Origin/Referer 回退逻辑和 scheme-port 交叉校验作为防御性措施，
  * 以应对代理头配置不完整的场景。解析失败时回退到配置的 baseUrl。
  */
