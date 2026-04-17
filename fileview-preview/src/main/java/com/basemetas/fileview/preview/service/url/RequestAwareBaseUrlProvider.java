@@ -106,17 +106,23 @@ public class RequestAwareBaseUrlProvider implements BaseUrlProvider {
 
                 // scheme 与 port 交叉校验修正（防御代理头配置不一致）
                 // 补偿 X-Forwarded-Port：RemoteIpValve 不处理此头，需手动检查
+                // 注意：仅在 Host 头不含显式端口时才采用 X-Forwarded-Port，
+                // 避免覆盖 Host 头中已正确携带的外部端口（如 Docker -p 9000:80 场景）
+                String hostHeader = request.getHeader("Host");
+                boolean hostHasExplicitPort = hostHeader != null && hostHeader.matches(".*:\\d+$");
                 String forwardedPort = request.getHeader("X-Forwarded-Port");
-                if (forwardedPort != null && !forwardedPort.trim().isEmpty()) {
+                if (!hostHasExplicitPort && forwardedPort != null && !forwardedPort.trim().isEmpty()) {
                     try {
                         int fwdPort = Integer.parseInt(forwardedPort.trim());
                         if (fwdPort != serverPort) {
-                            logger.debug("🔧 X-Forwarded-Port({}) 与 serverPort({}) 不一致，以代理头为准", fwdPort, serverPort);
+                            logger.debug("🔧 X-Forwarded-Port({}) 与 serverPort({}) 不一致（Host无显式端口），以代理头为准", fwdPort, serverPort);
                             serverPort = fwdPort;
                         }
                     } catch (NumberFormatException ignored) {
                         // 忽略无效的端口值
                     }
+                } else if (hostHasExplicitPort && forwardedPort != null) {
+                    logger.debug("🔧 Host头含显式端口({})，跳过X-Forwarded-Port({})", hostHeader, forwardedPort);
                 }
                 if (serverPort == 443 && "http".equals(scheme)) {
                     scheme = "https";
