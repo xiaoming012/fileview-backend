@@ -24,7 +24,14 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
- * 从请求上下文中解析 baseUrl 的提供者；解析失败时回退到配置的 baseUrl。
+ * 从请求上下文中解析 baseUrl 的提供者。
+ * <p>
+ * 依赖 {@code server.forward-headers-strategy=native} 配置，
+ * Tomcat RemoteIpValve 会自动将 X-Forwarded-Proto/Host 等代理头
+ * 映射到 request 对象，因此本类优先使用 request 原生方法获取 scheme/host/port。
+ * <p> 
+ * 额外保留 Origin/Referer 回退逻辑和 scheme-port 交叉校验作为防御性措施，
+ * 以应对代理头配置不完整的场景。解析失败时回退到配置的 baseUrl。
  */
 @Component
 public class RequestAwareBaseUrlProvider implements BaseUrlProvider {
@@ -39,111 +46,75 @@ public class RequestAwareBaseUrlProvider implements BaseUrlProvider {
             ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
             if (attributes != null) {
                 HttpServletRequest request = attributes.getRequest();
-                
-                // 优先从 X-Forwarded-Proto 获取协议（代理场景）
-                String scheme = request.getHeader("X-Forwarded-Proto");
-                if (scheme == null || scheme.trim().isEmpty()) {
-                    scheme = request.getScheme();
-                }
 
-                // 优先从代理头获取客户端实际使用的主机名和端口
-                String forwardedHost = request.getHeader("X-Forwarded-Host");
-                String forwardedPort = request.getHeader("X-Forwarded-Port");
-                String host = request.getHeader("Host");
-                
-                // 调试日志：查看所有相关请求头
+                // native 策略下，request 已自动反映 X-Forwarded-Proto/Host
+                String scheme = request.getScheme();
+                String serverName = request.getServerName();
+                int serverPort = request.getServerPort();
+
+                logger.debug("📊 request基础值 - scheme: {}, serverName: {}, serverPort: {}", scheme, serverName, serverPort);
+
+                // 调试日志：查看原始请求头（用于排查代理配置问题）
                 String origin = request.getHeader("Origin");
                 String referer = request.getHeader("Referer");
-                logger.debug("📊 请求头调试 - Origin: {}, Referer: {}, Host: {}, X-Forwarded-Host: {}, X-Forwarded-Port: {}",
-                        origin, referer, host, forwardedHost, forwardedPort);
-                
-                String serverName;
-                int serverPort;
+                logger.debug("📊 请求头调试 - Origin: {}, Referer: {}, Host: {}, X-Forwarded-Host: {}, X-Forwarded-Proto: {}",
+                        origin, referer, request.getHeader("Host"),
+                        request.getHeader("X-Forwarded-Host"), request.getHeader("X-Forwarded-Proto"));
 
-                // 优先级：X-Forwarded-Host > Origin > Referer > Host > request.getServerName()
-                if (forwardedHost != null && !forwardedHost.trim().isEmpty()) {
-                    // 从 X-Forwarded-Host 解析
-                    int colonIndex = forwardedHost.indexOf(':');
-                    if (colonIndex > 0) {
-                        serverName = forwardedHost.substring(0, colonIndex);
+                // 防御性回退：如果 request 返回的是容器内部地址（如 localhost/127.0.0.1），
+                // 尝试从 Origin 或 Referer 中获取真实的外部地址
+                if (isInternalAddress(serverName)) {
+                    if (origin != null && !origin.trim().isEmpty()) {
                         try {
-                            serverPort = Integer.parseInt(forwardedHost.substring(colonIndex + 1));
-                        } catch (NumberFormatException e) {
-                            serverPort = request.getServerPort();
-                        }
-                    } else {
-                        serverName = forwardedHost;
-                        // 如果有 X-Forwarded-Port，优先使用
-                        if (forwardedPort != null && !forwardedPort.trim().isEmpty()) {
-                            try {
-                                serverPort = Integer.parseInt(forwardedPort);
-                            } catch (NumberFormatException e) {
-                                serverPort = request.getServerPort();
+                            java.net.URI uri = new java.net.URI(origin);
+                            if (uri.getHost() != null && !isInternalAddress(uri.getHost())) {
+                                serverName = uri.getHost();
+                                serverPort = uri.getPort() == -1 ? getDefaultPort(uri.getScheme()) : uri.getPort();
+                                if (uri.getScheme() != null) {
+                                    scheme = uri.getScheme();
+                                }
+                                logger.debug("🌐 从 Origin 回退 - ServerName: {}, ServerPort: {}, Scheme: {}", serverName, serverPort, scheme);
                             }
-                        } else {
-                            serverPort = request.getServerPort();
+                        } catch (Exception e) {
+                            logger.warn("⚠️ Origin 解析失败: {}", origin, e);
                         }
-                    }
-                    logger.debug("🌐 从 X-Forwarded-Host 解析 - ForwardedHost: {}, ForwardedPort: {}, ServerName: {}, ServerPort: {}", 
-                            forwardedHost, forwardedPort, serverName, serverPort);
-                } else if (origin != null && !origin.trim().isEmpty()) {
-                    // 从 Origin 头解析（跨域请求场景）
-                    try {
-                        java.net.URI uri = new java.net.URI(origin);
-                        serverName = uri.getHost();
-                        serverPort = uri.getPort();
-                        if (serverPort == -1) {
-                            serverPort = "https".equals(uri.getScheme()) ? 443 : 80;
-                        }
-                        // 覆盖 scheme
-                        if (uri.getScheme() != null) {
-                            scheme = uri.getScheme();
-                        }
-                        logger.debug("🌐 从 Origin 头解析 - Origin: {}, ServerName: {}, ServerPort: {}", origin, serverName, serverPort);
-                    } catch (Exception e) {
-                        logger.warn("⚠️ Origin 解析失败，降级到 Host: {}", origin, e);
-                        serverName = request.getServerName();
-                        serverPort = request.getServerPort();
-                    }
-                } else if (referer != null && !referer.trim().isEmpty()) {
-                    // 从 Referer 头解析（同域请求场景）
-                    try {
-                        java.net.URI uri = new java.net.URI(referer);
-                        serverName = uri.getHost();
-                        serverPort = uri.getPort();
-                        if (serverPort == -1) {
-                            serverPort = "https".equals(uri.getScheme()) ? 443 : 80;
-                        }
-                        // 覆盖 scheme
-                        if (uri.getScheme() != null) {
-                            scheme = uri.getScheme();
-                        }
-                        logger.debug("🌐 从 Referer 头解析 - Referer: {}, ServerName: {}, ServerPort: {}", referer, serverName, serverPort);
-                    } catch (Exception e) {
-                        logger.warn("⚠️ Referer 解析失败，降级到 Host: {}", referer, e);
-                        serverName = request.getServerName();
-                        serverPort = request.getServerPort();
-                    }
-                } else if (host != null && !host.trim().isEmpty()) {
-                    // 从 Host 头解析
-                    int colonIndex = host.indexOf(':');
-                    if (colonIndex > 0) {
-                        serverName = host.substring(0, colonIndex);
+                    } else if (referer != null && !referer.trim().isEmpty()) {
                         try {
-                            serverPort = Integer.parseInt(host.substring(colonIndex + 1));
-                        } catch (NumberFormatException e) {
-                            serverPort = request.getServerPort();
+                            java.net.URI uri = new java.net.URI(referer);
+                            if (uri.getHost() != null && !isInternalAddress(uri.getHost())) {
+                                serverName = uri.getHost();
+                                serverPort = uri.getPort() == -1 ? getDefaultPort(uri.getScheme()) : uri.getPort();
+                                if (uri.getScheme() != null) {
+                                    scheme = uri.getScheme();
+                                }
+                                logger.debug("🌐 从 Referer 回退 - ServerName: {}, ServerPort: {}, Scheme: {}", serverName, serverPort, scheme);
+                            }
+                        } catch (Exception e) {
+                            logger.warn("⚠️ Referer 解析失败: {}", referer, e);
                         }
-                    } else {
-                        serverName = host;
-                        serverPort = request.getServerPort();
                     }
-                    logger.debug("🌐 从 Host 头解析 - Host: {}, ServerName: {}, ServerPort: {}", host, serverName, serverPort);
-                } else {
-                    // 最后回退到 request 对象
-                    serverName = request.getServerName();
-                    serverPort = request.getServerPort();
-                    logger.debug("⚠️ 从 request 解析 - ServerName: {}, ServerPort: {}", serverName, serverPort);
+                }
+
+                // scheme 与 port 交叉校验修正（防御代理头配置不一致）
+                // 补偿 X-Forwarded-Port：RemoteIpValve 不处理此头，需手动检查
+                String forwardedPort = request.getHeader("X-Forwarded-Port");
+                if (forwardedPort != null && !forwardedPort.trim().isEmpty()) {
+                    try {
+                        int fwdPort = Integer.parseInt(forwardedPort.trim());
+                        if (fwdPort != serverPort) {
+                            logger.debug("🔧 X-Forwarded-Port({}) 与 serverPort({}) 不一致，以代理头为准", fwdPort, serverPort);
+                            serverPort = fwdPort;
+                        }
+                    } catch (NumberFormatException ignored) {
+                        // 忽略无效的端口值
+                    }
+                }
+                if (serverPort == 443 && "http".equals(scheme)) {
+                    scheme = "https";
+                    logger.debug("🔧 端口443修正协议为https");
+                } else if (serverPort == 80 && "https".equals(scheme)) {
+                    serverPort = 443;
+                    logger.debug("🔧 https协议修正端口为443");
                 }
 
                 // 优先从 X-Forwarded-Prefix 请求头获取 contextPath
@@ -185,6 +156,26 @@ public class RequestAwareBaseUrlProvider implements BaseUrlProvider {
 
         // 回退：使用配置的baseUrl
         return baseUrl;
+    }
+
+    /**
+     * 判断是否为内部/容器地址（代理未正确传递 Host 时 request 会返回这些值）
+     */
+    private boolean isInternalAddress(String host) {
+        return host == null
+                || "localhost".equalsIgnoreCase(host)
+                || host.startsWith("127.")
+                || host.startsWith("10.")
+                || host.startsWith("172.")
+                || host.startsWith("192.168.")
+                || host.startsWith("0:");
+    }
+
+    /**
+     * 根据协议返回默认端口
+     */
+    private int getDefaultPort(String scheme) {
+        return "https".equals(scheme) ? 443 : 80;
     }
 
     private String normalizeContextPath(String raw) {
