@@ -63,15 +63,15 @@ rm -f "$PID_FILE" 2>/dev/null || true
 # 确保目录存在
 mkdir -p "$LOG_DIR" "$DATA_DIR" "$PID_DIR"
 
-# 启动应用
+# 启动应用（通过子 shell + setsid + stdin 重定向，彻底脱离 docker exec 的 TTY）
 echo "[Fileview] 启动 $APP_NAME (环境: $PROFILE)..."
-nohup java $JVM_OPTS \
-    -Dlogging.config=file:${CONFIG_DIR}/logback-spring.xml \
-    -Dspring.config.additional-location=file:${CONFIG_DIR}/ \
-    -jar "$JAR_FILE" \
-    --spring.profiles.active=$PROFILE \
-    > "$LOG_DIR/stdout.log" 2>&1 &
-
-# 保存PID
-echo $! > "$PID_FILE"
-echo "[Fileview] $APP_NAME 已启动"
+(
+    setsid java $JVM_OPTS \
+        -Dlogging.config=file:${CONFIG_DIR}/logback-spring.xml \
+        -Dspring.config.additional-location=file:${CONFIG_DIR}/ \
+        -jar "$JAR_FILE" \
+        --spring.profiles.active=$PROFILE \
+        > "$LOG_DIR/stdout.log" 2>&1 < /dev/null &
+    echo $! > "$PID_FILE"
+)
+echo "[Fileview] $APP_NAME 已启动 (PID: $(cat $PID_FILE))"
