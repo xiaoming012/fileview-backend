@@ -832,8 +832,8 @@ public class ArchiveConvertStrategy implements FileConvertStrategy {
     /**
      * 解析7Z格式文件（带密码支持）
      * 使用 SevenZipParserService 智能解析策略：
-     * - WSL2 环境：优先使用隔离子进程的 native 解析
-     * - 其他环境：优先使用隔离 native，失败后 fallback 到外部命令
+     * - native 不支持的环境（WSL2、ARM64 等）：直接使用外部 7zz 命令
+     * - native 支持的环境：优先使用隔离 native，失败后 fallback 到外部命令
      * - 支持安全模式强制隔离或仅使用外部命令
      * 
      * @param archivePath 7Z文件路径

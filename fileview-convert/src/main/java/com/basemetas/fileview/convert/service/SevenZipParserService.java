@@ -83,7 +83,7 @@ public class SevenZipParserService {
 
     /**
      * 智能解析 7z 文件(指定模式)
-     * - AUTO: 智能选择,WSL2 环境优先隔离 native
+     * - AUTO: 智能选择，native 不支持的环境（WSL2、ARM64 等）直接走外部 7zz
      * - SAFE_MODE_ALWAYS_ISOLATE: 始终使用子进程隔离
      * - EXTERNAL_ONLY: 仅使用外部 7z 命令
      */
@@ -98,8 +98,10 @@ public class SevenZipParserService {
 
         boolean runningInWsl = EnvironmentUtils.isWslEnvironment();
         boolean externalAvailable = EnvironmentUtils.isExternal7zAvailable();
+        boolean nativeSupported = EnvironmentUtils.isNativeSevenZipSupported();
 
-        logger.debug("7z解析环境检测 - WSL: {}, 外部7z可用: {}, 模式: {}", runningInWsl, externalAvailable, mode);
+        logger.debug("7z解析环境检测 - WSL: {}, NativeSupported: {}, 外部7z可用: {}, 模式: {}",
+                runningInWsl, nativeSupported, externalAvailable, mode);
 
         // EXTERNAL_ONLY 模式
         if (mode == Mode.EXTERNAL_ONLY) {
@@ -109,10 +111,19 @@ public class SevenZipParserService {
             return parse7zArchiveFallback(archiveFile, password);
         }
 
-        // 是否优先隔离
-        boolean preferIsolation = mode == Mode.SAFE_MODE_ALWAYS_ISOLATE || runningInWsl;
+        // native 不支持的环境（WSL2、ARM64 等），直接走外部 7zz，避免 native 崩溃
+        if (!nativeSupported || runningInWsl) {
+            if (externalAvailable) {
+                logger.info("🔄 native不支持(WSL2={}, NativeSupported={})，直接使用外部7zz解析 - File: {}",
+                        runningInWsl, nativeSupported, archiveFile.getName());
+                return parse7zArchiveFallback(archiveFile, password);
+            }
+            throw new RuntimeException(
+                    "native不支持(WSL2=" + runningInWsl + ")且外部7zz不可用，无法解析7z文件");
+        }
 
-        // 优先使用隔离的 native 解析(子进程,避免 JVM 崩溃)
+        // native 支持的环境：优先使用隔离的 native 解析(子进程,避免 JVM 崩溃)
+        boolean preferIsolation = mode == Mode.SAFE_MODE_ALWAYS_ISOLATE || runningInWsl;
         if (preferIsolation || mode == Mode.AUTO) {
             try {
                 logger.debug("使用隔离子进程进行 native 解析");
@@ -439,9 +450,9 @@ public class SevenZipParserService {
     }
 
     /**
-     * 使用外部 7z 命令解析(p7zip)
+     * 使用外部 7zz 命令解析
      * 不加载 native 库,因此不会导致 JVM 因 SIGSEGV 崩溃
-     * 运行 `7z l -slt -pPASSWORD archive` 并解析输出
+     * 运行 `7zz l -slt -pPASSWORD archive` 并解析输出
      */
     public ArchiveInfo parse7zArchiveFallback(File archiveFile, String password) throws Exception {
         long startTime = System.currentTimeMillis();
