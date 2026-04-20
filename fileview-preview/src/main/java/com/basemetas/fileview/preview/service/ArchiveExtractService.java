@@ -605,7 +605,7 @@ public class ArchiveExtractService {
         boolean nativeSupported = EnvironmentUtils.isNativeSevenZipSupported();
         boolean external7zAvail = EnvironmentUtils.isExternal7zAvailable();
 
-        // 1. ARM64 或 WSL2：native 不可用，优先走外部 7z（支持全版本 RAR + 加密）
+        // 1. native 不支持的环境（WSL2、ARM64 等）：优先走外部 7z（支持全版本 RAR + 加密）
         if (!nativeSupported || runningInWsl) {
             if (external7zAvail) {
                 logger.info("🔄 平台不支持 native (WSL2={}, NativeSupported={})，使用外部 7z 提取 RAR - File: {}",
@@ -760,8 +760,8 @@ public class ArchiveExtractService {
     /**
      * 从7z类型的压缩文件中解压指定文件（支持密码）
      * 参考转换模块 SevenZipParserService 的智能解析策略
-     * - WSL2 环境：仅使用外部 7z 命令（避免 native 崩溃导致服务中断）
-     * - 非 WSL2：使用 native 库（加全局锁保护），失败时 fallback 到外部命令
+     * - native 不支持的环境（WSL2、ARM64 等）：仅使用外部 7z 命令（避免 native 崩溃导致服务中断）
+     * - native 支持的环境：使用 native 库（加全局锁保护），失败时 fallback 到外部命令
      */
     private ExtractResult extractFrom7zArchive(File archiveFile, String targetFilePath, Path tempDir, String password) {
         logger.info("🔍 开始解压7z文件 - ArchiveFile: {}, TargetFilePath: {}, TempDir: {}, HasPassword: {}", 
@@ -783,20 +783,24 @@ public class ArchiveExtractService {
         // Step 2: 检测运行环境
         boolean runningInWsl = EnvironmentUtils.isWslEnvironment();
         boolean external7zAvailable = EnvironmentUtils.isExternal7zAvailable();
-        logger.info("🔍 环境检测 - WSL2: {}, 外部7z命令可用: {}", runningInWsl, external7zAvailable);
-        
-        // Step 3: WSL2环境或不支持 native 的平台（如 ARM64），仅使用外部 7z 命令
         boolean nativeSupported = EnvironmentUtils.isNativeSevenZipSupported();
+        logger.info("🔍 环境检测 - WSL2: {}, NativeSupported: {}, 外部7z命令可用: {}",
+                runningInWsl, nativeSupported, external7zAvailable);
+
+        // Step 3: native 不支持的环境（WSL2、ARM64 等），仅使用外部 7z 命令
         if (runningInWsl || !nativeSupported) {
             if (!external7zAvailable) {
-                logger.error("❌ WSL2环境或不支持 native 的平台下外部 7z 命令不可用，无法安全提取 - File: {}", archiveFile.getName());
+                logger.error("❌ native不支持(WSL2={}, NativeSupported={})且外部7zz命令不可用，无法提取 - File: {}",
+                        runningInWsl, nativeSupported, archiveFile.getName());
                 return ExtractResult.failure(
-                    "WSL2环境或当前平台下需要p7zip-full支持，请在Docker镜像中安装：apt-get install p7zip-full");
+                    "当前平台不支持SevenZipJBinding native库(WSL2=" + runningInWsl
+                            + ")，且外部7zz命令不可用，请确保Docker镜像中包含对应架构的7zz");
             }
             if (runningInWsl) {
                 logger.info("🔄 WSL2环境检测到，仅使用外部 7z 命令提取（避免 native 崩溃）- File: {}", archiveFile.getName());
             } else {
-                logger.info("🔄 当前平台不支持 SevenZipJBinding native 库，直接使用外部 7z 命令提取 - File: {}", archiveFile.getName());
+                logger.info("🔄 当前平台不支持 SevenZipJBinding native 库(arch={})，直接使用外部 7z 命令提取 - File: {}",
+                        System.getProperty("os.arch", "unknown"), archiveFile.getName());
             }
             return tryExtractWith7zCommand(archiveFile, targetFilePath, tempDir, password);
         }

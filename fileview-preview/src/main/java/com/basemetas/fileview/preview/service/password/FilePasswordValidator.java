@@ -946,7 +946,10 @@ public class FilePasswordValidator {
     }
 
     /**
-     * 使用外部7z命令检测文件是否加密（WSL2环境专用）
+     * 使用外部7zz命令检测文件是否加密
+     * 
+     * 适用场景：native 不支持的环境（WSL2、ARM64/aarch64 等），
+     * 由 validate7zBasedPassword 在检测到 native 不可用时调用。
      * 
      * @param archiveFile 压缩文件
      * @param password    密码（可为null）
@@ -955,7 +958,7 @@ public class FilePasswordValidator {
      */
     private PasswordValidationResult validate7zWithExternalCommand(File archiveFile, String password, String format) {
         try {
-            // 检查外部7zz命令是否可用（用版本命令，退出码稳定为0）
+            // 检查外部7zz命令是否可用（用信息命令，退出码稳定为0）
             Process checkProcess = new ProcessBuilder("7zz", "i")
                     .redirectErrorStream(true)
                     .start();
@@ -966,9 +969,13 @@ public class FilePasswordValidator {
             }
             int checkExitCode = checkProcess.waitFor();
             if (checkExitCode != 0) {
-                logger.error("❌ WSL2环境下外部7zz命令不可用 - File: {}", archiveFile.getName());
-                // 无法检测，保守起见假定未加密
-                return PasswordValidationResult.notEncrypted(format);
+                logger.error("❌ 外部7zz命令不可用 (exitCode={}), 无法检测加密状态 - File: {}, Platform: {}/{}",
+                        checkExitCode, archiveFile.getName(),
+                        System.getProperty("os.name", "unknown"),
+                        System.getProperty("os.arch", "unknown"));
+                return PasswordValidationResult.error(format,
+                        "外部7zz命令不可用(exitCode=" + checkExitCode
+                                + ")，当前平台不支持SevenZipJBinding native库，无法检测加密状态");
             }
 
             // --- Step 1：用 7zz l（不带密码）检测文件是否加密 ---
@@ -1042,9 +1049,13 @@ public class FilePasswordValidator {
             }
 
         } catch (Exception e) {
-            logger.error("💥 外部7zz命令执行异常 - File: {}", archiveFile.getName(), e);
-            // 无法检测，保守起见假定未加密
-            return PasswordValidationResult.notEncrypted(format);
+            logger.error("💥 外部7zz命令执行异常 - File: {}, Platform: {}/{}, Error: {}",
+                    archiveFile.getName(),
+                    System.getProperty("os.name", "unknown"),
+                    System.getProperty("os.arch", "unknown"),
+                    e.getMessage());
+            return PasswordValidationResult.error(format,
+                    "外部7zz命令执行异常，当前平台不支持SevenZipJBinding native库，无法检测加密状态");
         }
     }
 
