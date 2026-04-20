@@ -84,6 +84,21 @@ public class LibreOfficeConverter {
      */
     @Value("${libreoffice.encrypted-blacklist:doc,xls,ppt,wps,wpt,et,ett,dps,dpt}")
     private String encryptedBlacklist;
+
+    /**
+     * PDF导出图片质量配置
+     */
+    @Value("${libreoffice.pdf.image.reduce-resolution:false}")
+    private boolean reduceImageResolution;
+
+    @Value("${libreoffice.pdf.image.max-resolution:300}")
+    private int maxImageResolution;
+
+    @Value("${libreoffice.pdf.image.quality:95}")
+    private int imageQuality;
+
+    @Value("${libreoffice.pdf.image.use-lossless:true}")
+    private boolean useLosslessCompression;
     
     /**
      * 初始化方法
@@ -188,7 +203,13 @@ public class LibreOfficeConverter {
                 // 构建存储属性（storeProperties）
                 Map<String, Object> filterData = new HashMap<>();
                 filterData.put("EncryptFile", true);
-                
+                // 🔑 图片质量参数：提升PDF中图片清晰度
+                filterData.put("ReduceImageResolution", reduceImageResolution);
+                filterData.put("MaxImageResolution", maxImageResolution);
+                filterData.put("Quality", imageQuality);
+                // 🔑 关键修复：启用无损压缩，避免JPEG有损压缩导致图片模糊
+                filterData.put("UseLosslessCompression", useLosslessCompression);
+
                 Map<String, Object> storeProperties = new HashMap<>();
                 storeProperties.put("FilterData", filterData);
                 
@@ -419,7 +440,7 @@ public class LibreOfficeConverter {
      */
     private String getLibreOfficeFormatForWord(String targetFormat) {
         String format = targetFormat.toLowerCase();
-        
+
         switch (format) {
             case "html":
                 return "html:XHTML Writer File:UTF8";
@@ -427,9 +448,25 @@ public class LibreOfficeConverter {
                 return "txt:Text (encoded):UTF8";
             case "docx":
                 return "docx";
+            case "pdf":
+                // 🔑 PDF导出时附加图片质量参数，提升清晰度
+                return buildPdfFormatWithImageOptions("writer_pdf_Export");
             default:
                 return getLibreOfficeFormatGeneric(format);
         }
+    }
+
+    /**
+     * 构建带图片质量参数的PDF格式字符串
+     */
+    private String buildPdfFormatWithImageOptions(String exportFilter) {
+        StringBuilder formatBuilder = new StringBuilder("pdf:");
+        formatBuilder.append(exportFilter);
+        formatBuilder.append(":ReduceImageResolution=").append(reduceImageResolution);
+        formatBuilder.append(",MaxImageResolution=").append(maxImageResolution);
+        formatBuilder.append(",Quality=").append(imageQuality);
+        formatBuilder.append(",UseLosslessCompression=").append(useLosslessCompression);
+        return formatBuilder.toString();
     }
     
     /**
@@ -437,10 +474,14 @@ public class LibreOfficeConverter {
      */
     private String getLibreOfficeFormatForExcel(String targetFormat) {
         String format = targetFormat.toLowerCase();
-        
+
         switch (format) {
+            case "pdf":
+                // 🔑 PDF导出时附加图片质量参数，提升清晰度
+                return buildPdfFormatWithImageOptions("calc_pdf_Export");
             case "pdfa":
-                return "pdf:writer_pdf_Export"; // PDF/A格式
+                // PDF/A格式暂不应用图片质量参数（保持兼容性）
+                return "pdf:calc_pdf_Export";
             case "csv":
                 return "csv:Text - txt - csv (StarCalc):44,34,76,1,,0,false,true,true,false,false";
             case "ods":
@@ -459,16 +500,20 @@ public class LibreOfficeConverter {
                 return getLibreOfficeFormatGeneric(format);
         }
     }
-    
+
     /**
      * 获取LibreOffice格式参数（PPT专用）
      */
     private String getLibreOfficeFormatForPpt(String targetFormat) {
         String format = targetFormat.toLowerCase();
-        
+
         switch (format) {
+            case "pdf":
+                // 🔑 PDF导出时附加图片质量参数，提升清晰度
+                return buildPdfFormatWithImageOptions("impress_pdf_Export");
             case "pdfa":
-                return "pdf:impress_pdf_Export"; // PDF/A格式
+                // PDF/A格式暂不应用图片质量参数（保持兼容性）
+                return "pdf:impress_pdf_Export";
             case "odp":
                 return "odp";
             case "otp":
