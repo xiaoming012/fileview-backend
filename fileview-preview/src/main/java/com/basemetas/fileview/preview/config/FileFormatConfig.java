@@ -152,7 +152,7 @@ public class FileFormatConfig {
         registerConversionFormat("vsd", "pdf", FileCategory.VISIO, "Microsoft Visio绘图");
 
         //8. CAD文件：dwg
-        registerConversionFormat("dwg", "dxf", FileCategory.CAD, "CAD文件");
+        // registerConversionFormat("dwg", "dxf", FileCategory.CAD, "CAD文件");
     }
 
     /**
@@ -192,7 +192,7 @@ public class FileFormatConfig {
         registerDirectPreviewFormats(FileCategory.VISIO, "bpmn", "drawio", "xmind");
 
         // 7. CAD文件：cad（注意：实际可能需要dwg、dxf等）
-        registerDirectPreviewFormats(FileCategory.CAD, "dxf");
+        registerDirectPreviewFormats(FileCategory.CAD, "dwg","dxf");
 
         // 8. 3D文件：GLTF、GLB、OBJ、STL、FBX、PLY、DAE、WRL、3DS、3MF
         registerDirectPreviewFormats(FileCategory.THREE_D, "gltf", "glb", "obj", "stl", "fbx", "ply", "dae", "wrl",
