@@ -47,8 +47,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -730,8 +728,8 @@ public class FilePreviewController {
             // 确定文件路径
             String filePath;
             if (path != null && !path.trim().isEmpty()) {
-                // 使用传入的路径参数（URL解码）
-                filePath = URLDecoder.decode(path, StandardCharsets.UTF_8);
+                // @RequestParam 已由框架完成解码，避免二次 decode 把 '+' 转为空格
+                filePath = path;
             } else {
                 // 使用缓存中的预览文件路径
                 filePath = cacheInfo.getOriginalFilePath();
@@ -808,14 +806,8 @@ public class FilePreviewController {
                 return ResponseEntity.badRequest().build();
             }
 
-            // URL解码（容错处理：解码失败时保留原始路径）
+            // @RequestParam 已由框架完成解码，避免二次 decode 把 '+' 转为空格
             String decodedPath = filePath;
-            try {
-                decodedPath = URLDecoder.decode(filePath, StandardCharsets.UTF_8);
-            } catch (IllegalArgumentException e) {
-                logger.warn("⚠️ URL解码失败，使用原始路径 - Path: {}, Error: {}", filePath, e.getMessage());
-                // 保留原始 filePath
-            }
 
             // 检查文件是否存在
             Path file = Paths.get(decodedPath);

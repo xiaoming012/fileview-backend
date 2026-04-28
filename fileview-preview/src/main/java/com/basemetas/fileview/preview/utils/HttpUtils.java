@@ -272,9 +272,9 @@ public class HttpUtils {
 
             String fileName = path.substring(path.lastIndexOf('/') + 1);
 
-            // URL解码（容错处理：解码失败时保留原始字符串，至少可以提取扩展名）
+            // URL解码（仅处理百分号编码，保留 '+' 字符语义）
             try {
-                fileName = java.net.URLDecoder.decode(fileName, "UTF-8");
+                fileName = decodePercentEncodedPreservingPlus(fileName);
             } catch (IllegalArgumentException decodeEx) {
                 logger.warn("⚠️ URL解码失败，保留原始文件名 - FileName: {}, Error: {}", fileName, decodeEx.getMessage());
                 // 保留原始 fileName 不变，继续后续处理
@@ -420,6 +420,17 @@ public class HttpUtils {
         }
         // 检查是否包含%后跟2个十六进制字符，认为已编码
         return str.matches(".*%[0-9A-Fa-f]{2}.*");
+    }
+
+    /**
+     * 仅解码百分号编码并保留 '+' 原义，避免 URLDecoder 把 '+' 误解为空格
+     */
+    private String decodePercentEncodedPreservingPlus(String value) {
+        if (value == null || value.isEmpty() || !value.contains("%")) {
+            return value;
+        }
+        String preservedPlus = value.replace("+", "%2B");
+        return URLDecoder.decode(preservedPlus, StandardCharsets.UTF_8);
     }
 
     /**
